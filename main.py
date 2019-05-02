@@ -1,5 +1,5 @@
 from dictabase import (
-    _BaseDictabaseTable,
+    BaseDictabaseTable,
     Drop,
     FindAll,
     FindOne,
@@ -8,12 +8,12 @@ from dictabase import (
 import random
 
 
-class Person(_BaseDictabaseTable):
-    # Each subclass of _BaseDictabaseTable produces another table in the db
+class Person(BaseDictabaseTable):
+    # Each subclass of BaseDictabaseTable produces another table in the db
     pass
 
 
-class Animal(_BaseDictabaseTable):
+class Animal(BaseDictabaseTable):
     pass
 
 
