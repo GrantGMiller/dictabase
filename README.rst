@@ -29,11 +29,11 @@ Look up items in the database
     allUsers = FindAll(UserClass)
     # allUsers is an iterable of all the UserClass objects that exists in the database
     print('allUsers=', list(allUsers))
-    >> allUsers= [<UserClass: name='Grant'>, <UserClass: name='Bob'>]
+    >> allUsers= [<UserClass: name='Grant', age=31>, <UserClass: name='Bob', age=99>]
 
     user = FindOne(UserClass, name='Grant')
     print('user=', user)
-    >>user= <UserClass: name='Grant'>
+    >>user= <UserClass: name='Grant', age=31>
 
     user = FindOne(UserClass, name='NotARealName')
     print('user=', user)
