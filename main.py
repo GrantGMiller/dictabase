@@ -17,6 +17,7 @@ class Animal(_BaseDictabaseTable):
 
 
 # For testing, delete all tables first
+# Comment these out to make data persistant
 Drop(Person)
 Drop(Animal)
 
@@ -48,4 +49,4 @@ for animal in FindAll(Animal):
 
 print('Remaining Animals=', FindAll(Animal))
 
-
+# Notice that now you project space contains a MyDatabase.db which is a sqlite database.
