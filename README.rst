@@ -1,5 +1,10 @@
 A database interface that acts like a python dictionary
 
+Install
+=======
+
+pip install dictabase
+
 Example
 =======
 
