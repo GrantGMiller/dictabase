@@ -6,6 +6,7 @@ import json
 global _DB_URI
 _DB_URI = 'sqlite:///MyDatabase.db'
 
+print = lambda *a, **k: None
 
 def SetDB_URI(dburi):
     '''

@@ -70,9 +70,13 @@ class Page(BaseDictabaseTable):
 Drop(Book)
 Drop(Page)
 
-book = Book()
-page1 = Page()
-page2 = Page()
+book = Book(title='Title')
+page1 = Page(words='Words1')
+page2 = Page(words='Words2')
+
+print('77 book=', book)
+print('78 page1=', page1)
+print('79 page2=', page2)
 
 book['pages'] = [page1, page2]
 page1['book'] = book
