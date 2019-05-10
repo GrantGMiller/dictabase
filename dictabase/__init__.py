@@ -20,6 +20,9 @@ def SetDB_URI(dburi):
 
 # Some types are not supported, use this list of types to jsonify the value when reading/writing
 _TYPE_CONVERT_TO_JSON = [list, dict]
+_CLASS_NAME_TO_CLASS_OBJECT = {
+    # type(obj).__name__ : <class '__main__.MyClass'>
+}
 
 
 def _ConvertDictValuesToJson(dictObj):
@@ -170,6 +173,13 @@ class BaseDictabaseTable(dict):
             # find the object we just created and get its 'id' from the database
             obj = FindOne(type(self), **self)
             self['id'] = obj['id']
+
+            self['_type'] = type(self).__name__  # so we can do Relational Mapping
+
+            if type(self).__name__ not in _CLASS_NAME_TO_CLASS_OBJECT:
+                _CLASS_NAME_TO_CLASS_OBJECT[type(self).__name__] = type(
+                    self)  # so we can look up a class by its __name__
+
             obj.AfterInsert()  # Call this so the programmer can specify actions after init
 
         else:
@@ -191,23 +201,28 @@ class BaseDictabaseTable(dict):
         :param value:
         :return:
         '''
+        print('__setitem__(', self, key, value)
         key, value = self.CustomSetKey(key, value)
 
-        for aType in _TYPE_CONVERT_TO_JSON:
-            if isinstance(value, aType):
-                value = json.dumps(value)
-                break
+        if isinstance(value, BaseDictabaseTable):
+            value = dict(value)  # storing as a dict in the database
+
+        if type(value) in _TYPE_CONVERT_TO_JSON:
+            value = json.dumps(value)
 
         super().__setitem__(key, value)
         self._Save()
 
     def __getitem__(self, key):
+        print('__getitem__(', self, key)
         superValue = super().__getitem__(key)
         try:
             value = json.loads(superValue)
             ret = value
         except Exception as err:
             ret = superValue
+
+        ret = _ConvertAnyDictsToDatabaseRowObjects(ret)
 
         _, ret = self.CustomGetKey(key, ret)
         return ret
@@ -376,3 +391,29 @@ def Delete(obj):
     with dataset.connect(_DB_URI) as DB:
         DB[dbName].delete(**obj)
         DB.commit()
+
+
+def _ConvertAnyDictsToDatabaseRowObjects(item):
+    '''
+    item could be of any type
+    :param item:
+    :return:
+    '''
+    print('_ConvertAnyDictsToDatabaseRowObjects(', item)
+    if isinstance(item, dict):
+        if item.get('_type', None):
+            # Convert to a db row
+            ret = FindOne(
+                _CLASS_NAME_TO_CLASS_OBJECT[item.get('_type')],
+                id=item.get('id'),
+            )
+            return ret
+
+    elif isinstance(item, list):
+        ret = []
+        for subItem in item:
+            ret.append(_ConvertAnyDictsToDatabaseRowObjects(subItem))
+        return ret
+
+    else:
+        return item
