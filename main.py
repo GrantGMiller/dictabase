@@ -24,7 +24,7 @@ Drop(Animal)
 
 # Create tables with random data
 for i in range(10):
-    # Instantiating a new Person object adds a new row in the db
+    # Instantiating a new Person obj adds a new row in the db
     newPerson = Person(
         name='Name{}'.format(i),
         age=random.randint(1, 100),
@@ -44,7 +44,7 @@ print('Number of animals of age 5: {}'.format(
     len(FindAll(Animal, age=5)))
 )
 
-# FindOne() returns an object found in the database
+# FindOne() returns an obj found in the database
 person5 = FindOne(Person, name='Name5')
 print('Age of Person5=', person5['age'])
 

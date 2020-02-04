@@ -1,5 +1,7 @@
 import dataset
 import json
+from queue import Queue
+from threading import Timer
 
 # The DB URI used to store/read all data. By default uses sqlite. You can change the DB by calling SetDB_URI(newName)
 # This module supports any DBURI supported by SQLAlchemy
@@ -41,7 +43,7 @@ def _ConvertDictValuesToJson(dictObj):
 
 def _ConvertDictJsonValuesToNative(dictObj):
     '''
-    This is used to json.load the value when reconstrucing the object from the db
+    This is used to json.load the value when reconstrucing the obj from the db
     :param dictObj:
     :return:
     '''
@@ -76,7 +78,7 @@ class BaseDictabaseTable(dict):
 
     def AfterInsert(self, *args, **kwargs):
         '''
-        Override this method to do something after object is inserted in database
+        Override this method to do something after obj is inserted in database
 
         Example:
 
@@ -97,7 +99,7 @@ class BaseDictabaseTable(dict):
 
             def CustomGetKey(self, key, value):
                 if key == 'content':
-                    return key, Markup(value) # cast the value as a flask.Markup object
+                    return key, Markup(value) # cast the value as a flask.Markup obj
                 else:
                     return key, value # return the value normally
 
@@ -135,7 +137,7 @@ class BaseDictabaseTable(dict):
 
         doInsert = kwargs.pop('doInsert', True)
         if doInsert is True:
-            # First check if there is already an object in database with the unique keys
+            # First check if there is already an obj in database with the unique keys
 
             kwargs = _ConvertDictValuesToJson(kwargs)
 
@@ -156,24 +158,25 @@ class BaseDictabaseTable(dict):
 
                 if duplicateExists:
                     raise Exception(
-                        'Duplicate object. searchDict={}, kwargs={}, uniqueKeys={}, searchResults={}'.format(
+                        'Duplicate obj. searchDict={}, kwargs={}, uniqueKeys={}, searchResults={}'.format(
                             searchDict,
                             kwargs,
                             self.uniqueKeys,
                             searchResults
                         ))
 
-            # Create a new object and insert it in the database
+            # Create a new obj and insert it in the database
             super().__init__(*args, **kwargs)
-            _InsertDB(self)
+            obj = _DoInsertDB(self)
 
-            # find the object we just created and get its 'id' from the database
-            obj = FindOne(type(self), **self)
-            self['id'] = obj['id']
-            obj.AfterInsert()  # Call this so the programmer can specify actions after init
+            print('178 obj=', obj)
+            # self['id'] = obj['id']  # i think this is causing a threading error
+            super().__setitem__('id', obj['id'])
+
+            self.AfterInsert()  # Call this so the programmer can specify actions after init
 
         else:
-            # This is called by FindOne or FindAll to re-construct an object from the database
+            # This is called by FindOne or FindAll to re-construct an obj from the database
             dictObj = args[0]
             super().__init__(**dictObj)
 
@@ -186,7 +189,7 @@ class BaseDictabaseTable(dict):
 
     def __setitem__(self, key, value):
         '''
-        Any time a value is set to this object, the change will be updated in the database
+        Any time a value is set to this obj, the change will be updated in the database
         :param key:
         :param value:
         :return:
@@ -249,6 +252,10 @@ class BaseDictabaseTable(dict):
 
 
 def _InsertDB(obj):
+    queueManager.Add('insert', obj)
+
+
+def _DoInsertDB(obj):
     '''
     Add a new obj to the db
     :param obj: subclass of dict()
@@ -259,8 +266,14 @@ def _InsertDB(obj):
         DB[tableName].insert(obj)
         DB.commit()
 
+    return FindOne(type(obj), **obj)
+
 
 def _UpsertDB(obj, listOfKeysThatMustMatch):
+    queueManager.Add('upsert', obj, listOfKeysThatMustMatch)
+
+
+def _DoUpsertDB(obj, listOfKeysThatMustMatch):
     '''
     Update or Insert the obj into the db
     :param obj: subclass of dict()
@@ -277,18 +290,20 @@ def _UpsertDB(obj, listOfKeysThatMustMatch):
 
 def FindOne(objType, **k):
     '''
-    Find an object in the db and return it
+    Find an obj in the db and return it
     :param objType:
     :param k:
-    :return: None if no object found, or the obj itself
+    :return: None if no obj found, or the obj itself
 
     Example:
     obj = FindOne(MyClass, name='grant')
     if obj is None:
-        print('no object found')
+        print('no obj found')
     else:
-        print('Found object=', obj)
+        print('Found obj=', obj)
     '''
+    queueManager.Pause()
+
     k = _ConvertDictValuesToJson(k)
 
     dbName = objType.__name__
@@ -297,15 +312,17 @@ def FindOne(objType, **k):
 
         ret = DB[dbName].find_one(**k)
         if ret is None:
-            return None
+            ret = None
         else:
             ret = objType(ret, doInsert=False)  # cast the return as its proper type
-            return ret
+
+    queueManager.Resume()
+    return ret
 
 
 def FindAll(objType, **k):
     '''
-    Find all object in database that match the **k
+    Find all obj in database that match the **k
 
     Also pass special kwargs to return objects in a certain order/limit
 
@@ -319,6 +336,7 @@ def FindAll(objType, **k):
     :param k: an empty dict like {} will return all items from table
     :return: a generator that will iterate thru all the results found, may have length 0
     '''
+    queueManager.Pause()
 
     reverse = k.pop('_reverse', False)  # bool
 
@@ -347,10 +365,19 @@ def FindAll(objType, **k):
                 ret = DB[dbName].find(**k)
 
         ret = [objType(item, doInsert=False) for item in list(ret)]
-        return ret
+
+    queueManager.Resume()
+    return ret
 
 
 def Drop(objType):
+    # queueManager.Add('drop', objType)
+    queueManager.Pause()
+    _DoDrop(objType)
+    queueManager.Resume()
+
+
+def _DoDrop(objType):
     '''
     Delete an entire table from the database
 
@@ -364,6 +391,13 @@ def Drop(objType):
 
 
 def Delete(obj):
+    # queueManager.Add('delete', obj)
+    queueManager.Pause()
+    _DoDelete(obj)
+    queueManager.Resume()
+
+
+def _DoDelete(obj):
     '''
     Delete a row from the database
 
@@ -376,3 +410,62 @@ def Delete(obj):
     with dataset.connect(_DB_URI) as DB:
         DB[dbName].delete(**obj)
         DB.commit()
+
+
+class QueueManager:
+    def __init__(self):
+        self._q = Queue()
+        self._timer = None
+        self._pause = False
+
+    def Pause(self):
+        self._pause = True
+        if self._timer and self._timer.isAlive():
+            self._timer.cancel()
+
+    def Resume(self):
+        if self._timer is None:
+            self._timer = Timer(0, self._ProcessOneQueueItem)
+            self._timer.start()
+
+    def Add(self, command, *args, **kwargs):
+        self._q.put((command, args, kwargs))
+
+        self.Resume()
+
+    def _ProcessOneQueueItem(self):
+        command, args, kwargs = self._q.get()
+
+        func = {
+            'upsert': _DoUpsertDB,
+            'insert': _DoInsertDB,
+            'drop': _DoDrop,
+            'delete': _DoDelete
+        }.get(command)
+        try:
+            func(*args, **kwargs)
+        except Exception as e:
+            print('441 Exception:', func, args, kwargs, '\r\n', e)
+
+        self._q.task_done()
+        if self._q.empty():
+            self._timer = None
+        else:
+            self._timer = Timer(0, self._ProcessOneQueueItem)
+            self._timer.start()
+
+
+queueManager = QueueManager()
+
+if __name__ == '__main__':
+    import time
+
+
+    class A(BaseDictabaseTable):
+        pass
+
+
+    a = A(time=time.asctime())
+    print('a=', a)
+    print('FindAll=', FindAll(A))
+    input()
