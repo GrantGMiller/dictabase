@@ -43,7 +43,7 @@ def _ConvertDictValuesToJson(dictObj):
 
 def _ConvertDictJsonValuesToNative(dictObj):
     '''
-    This is used to json.load the value when reconstrucing the obj from the db
+    This is used to json.load the value when reconstrucing the newObj from the db
     :param dictObj:
     :return:
     '''
@@ -78,7 +78,7 @@ class BaseDictabaseTable(dict):
 
     def AfterInsert(self, *args, **kwargs):
         '''
-        Override this method to do something after obj is inserted in database
+        Override this method to do something after newObj is inserted in database
 
         Example:
 
@@ -99,7 +99,7 @@ class BaseDictabaseTable(dict):
 
             def CustomGetKey(self, key, value):
                 if key == 'content':
-                    return key, Markup(value) # cast the value as a flask.Markup obj
+                    return key, Markup(value) # cast the value as a flask.Markup newObj
                 else:
                     return key, value # return the value normally
 
@@ -137,7 +137,7 @@ class BaseDictabaseTable(dict):
 
         doInsert = kwargs.pop('doInsert', True)
         if doInsert is True:
-            # First check if there is already an obj in database with the unique keys
+            # First check if there is already an newObj in database with the unique keys
 
             kwargs = _ConvertDictValuesToJson(kwargs)
 
@@ -158,25 +158,25 @@ class BaseDictabaseTable(dict):
 
                 if duplicateExists:
                     raise Exception(
-                        'Duplicate obj. searchDict={}, kwargs={}, uniqueKeys={}, searchResults={}'.format(
+                        'Duplicate newObj. searchDict={}, kwargs={}, uniqueKeys={}, searchResults={}'.format(
                             searchDict,
                             kwargs,
                             self.uniqueKeys,
                             searchResults
                         ))
 
-            # Create a new obj and insert it in the database
+            # Create a new newObj and insert it in the database
             super().__init__(*args, **kwargs)
-            obj = _DoInsertDB(self)
+            obj = _InsertDB(self)
 
-            print('178 obj=', obj)
-            # self['id'] = obj['id']  # i think this is causing a threading error
+            print('178 newObj=', obj)
+            # self['id'] = newObj['id']  # i think this is causing a threading error
             super().__setitem__('id', obj['id'])
 
             self.AfterInsert()  # Call this so the programmer can specify actions after init
 
         else:
-            # This is called by FindOne or FindAll to re-construct an obj from the database
+            # This is called by FindOne or FindAll to re-construct an newObj from the database
             dictObj = args[0]
             super().__init__(**dictObj)
 
@@ -189,7 +189,7 @@ class BaseDictabaseTable(dict):
 
     def __setitem__(self, key, value):
         '''
-        Any time a value is set to this obj, the change will be updated in the database
+        Any time a value is set to this newObj, the change will be updated in the database
         :param key:
         :param value:
         :return:
@@ -252,57 +252,64 @@ class BaseDictabaseTable(dict):
 
 
 def _InsertDB(obj):
-    queueManager.Add('insert', obj)
-
-
-def _DoInsertDB(obj):
     '''
-    Add a new obj to the db
+    Add a new newObj to the db
     :param obj: subclass of dict()
     :return:
     '''
+
     tableName = type(obj).__name__
     with dataset.connect(_DB_URI) as DB:
         DB[tableName].insert(obj)
         DB.commit()
 
-    return FindOne(type(obj), **obj)
+    ret = FindOne(type(obj), **obj)
+
+    return ret
 
 
 def _UpsertDB(obj, listOfKeysThatMustMatch):
-    queueManager.Add('upsert', obj, listOfKeysThatMustMatch)
+    _DoUpsertDB(obj, listOfKeysThatMustMatch)
 
 
-def _DoUpsertDB(obj, listOfKeysThatMustMatch):
+def _DoUpsertDB(newObj, listOfKeysThatMustMatch):
     '''
-    Update or Insert the obj into the db
-    :param obj: subclass of dict()
-    :param listOfKeysThatMustMatch:
+    Update and/or Insert the obj into the db
+    :param newObj: subclass of dict()
+    :param listOfKeysThatMustMatch: list of str
     :return:
     '''
-    listOfKeysThatMustMatch += ['id']
 
-    tableName = type(obj).__name__
+    listOfKeysThatMustMatch += ['id']
+    listOfKeysThatMustMatch = list(set(listOfKeysThatMustMatch))  # remove duplicates
+
+    newType = type(newObj)
+
+    oldObj = FindOne(newType, id=dict(newObj)['id'])
+    oldObj.update(newObj)
+
+    upsertObj = oldObj
+
+    tableName = type(upsertObj).__name__
     with dataset.connect(_DB_URI) as DB:
-        DB[tableName].upsert(obj, listOfKeysThatMustMatch)
+        DB[tableName].upsert(upsertObj, listOfKeysThatMustMatch)
         DB.commit()
 
 
 def FindOne(objType, **k):
     '''
-    Find an obj in the db and return it
+    Find an newObj in the db and return it
     :param objType:
     :param k:
-    :return: None if no obj found, or the obj itself
+    :return: None if no newObj found, or the newObj itself
 
     Example:
-    obj = FindOne(MyClass, name='grant')
-    if obj is None:
-        print('no obj found')
+    newObj = FindOne(MyClass, name='grant')
+    if newObj is None:
+        print('no newObj found')
     else:
-        print('Found obj=', obj)
+        print('Found newObj=', newObj)
     '''
-    queueManager.Pause()
 
     k = _ConvertDictValuesToJson(k)
 
@@ -316,13 +323,12 @@ def FindOne(objType, **k):
         else:
             ret = objType(ret, doInsert=False)  # cast the return as its proper type
 
-    queueManager.Resume()
     return ret
 
 
 def FindAll(objType, **k):
     '''
-    Find all obj in database that match the **k
+    Find all newObj in database that match the **k
 
     Also pass special kwargs to return objects in a certain order/limit
 
@@ -336,7 +342,6 @@ def FindAll(objType, **k):
     :param k: an empty dict like {} will return all items from table
     :return: a generator that will iterate thru all the results found, may have length 0
     '''
-    queueManager.Pause()
 
     reverse = k.pop('_reverse', False)  # bool
 
@@ -366,15 +371,11 @@ def FindAll(objType, **k):
 
         ret = [objType(item, doInsert=False) for item in list(ret)]
 
-    queueManager.Resume()
     return ret
 
 
 def Drop(objType):
-    # queueManager.Add('drop', objType)
-    queueManager.Pause()
     _DoDrop(objType)
-    queueManager.Resume()
 
 
 def _DoDrop(objType):
@@ -391,10 +392,7 @@ def _DoDrop(objType):
 
 
 def Delete(obj):
-    # queueManager.Add('delete', obj)
-    queueManager.Pause()
     _DoDelete(obj)
-    queueManager.Resume()
 
 
 def _DoDelete(obj):
@@ -404,6 +402,8 @@ def _DoDelete(obj):
     :param obj: subclass of dict
     :return: None
     '''
+    obj = FindOne(type(obj), id=obj['id'])
+
     objType = type(obj)
     dbName = objType.__name__
 
@@ -411,51 +411,6 @@ def _DoDelete(obj):
         DB[dbName].delete(**obj)
         DB.commit()
 
-
-class QueueManager:
-    def __init__(self):
-        self._q = Queue()
-        self._timer = None
-        self._pause = False
-
-    def Pause(self):
-        self._pause = True
-        if self._timer and self._timer.isAlive():
-            self._timer.cancel()
-
-    def Resume(self):
-        if self._timer is None:
-            self._timer = Timer(0, self._ProcessOneQueueItem)
-            self._timer.start()
-
-    def Add(self, command, *args, **kwargs):
-        self._q.put((command, args, kwargs))
-
-        self.Resume()
-
-    def _ProcessOneQueueItem(self):
-        command, args, kwargs = self._q.get()
-
-        func = {
-            'upsert': _DoUpsertDB,
-            'insert': _DoInsertDB,
-            'drop': _DoDrop,
-            'delete': _DoDelete
-        }.get(command)
-        try:
-            func(*args, **kwargs)
-        except Exception as e:
-            print('441 Exception:', func, args, kwargs, '\r\n', e)
-
-        self._q.task_done()
-        if self._q.empty():
-            self._timer = None
-        else:
-            self._timer = Timer(0, self._ProcessOneQueueItem)
-            self._timer.start()
-
-
-queueManager = QueueManager()
 
 if __name__ == '__main__':
     import time
@@ -468,4 +423,3 @@ if __name__ == '__main__':
     a = A(time=time.asctime())
     print('a=', a)
     print('FindAll=', FindAll(A))
-    input()

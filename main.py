@@ -1,3 +1,5 @@
+import time
+
 from dictabase import (
     BaseDictabaseTable,
     Drop,
@@ -24,7 +26,7 @@ Drop(Animal)
 
 # Create tables with random data
 for i in range(10):
-    # Instantiating a new Person obj adds a new row in the db
+    # Instantiating a new Person newObj adds a new row in the db
     newPerson = Person(
         name='Name{}'.format(i),
         age=random.randint(1, 100),
@@ -44,7 +46,7 @@ print('Number of animals of age 5: {}'.format(
     len(FindAll(Animal, age=5)))
 )
 
-# FindOne() returns an obj found in the database
+# FindOne() returns an newObj found in the database
 person5 = FindOne(Person, name='Name5')
 print('Age of Person5=', person5['age'])
 
@@ -87,3 +89,5 @@ print('page1["book"]=', page1['book'])
 print('page2["book"]=', page2['book'])
 
 # Notice that now your project space contains a MyDatabase.db which is a sqlite database.
+while True:
+    time.sleep(1)
