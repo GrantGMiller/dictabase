@@ -56,4 +56,34 @@ for animal in FindAll(Animal):
 
 print('Remaining Animals=', FindAll(Animal))
 
+
+# Test Relational Mapping
+
+class Book(BaseDictabaseTable):
+    pass
+
+
+class Page(BaseDictabaseTable):
+    pass
+
+
+Drop(Book)
+Drop(Page)
+
+book = Book(title='Title')
+page1 = Page(words='Words1')
+page2 = Page(words='Words2')
+
+print('77 book=', book)
+print('78 page1=', page1)
+print('79 page2=', page2)
+
+book['pages'] = [page1, page2]
+page1['book'] = book
+page2['book'] = book
+
+print('book["pages"]=', book['pages'])
+print('page1["book"]=', page1['book'])
+print('page2["book"]=', page2['book'])
+
 # Notice that now your project space contains a MyDatabase.db which is a sqlite database.
