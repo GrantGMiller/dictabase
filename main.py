@@ -21,8 +21,8 @@ class Animal(BaseDictabaseTable):
 
 # For testing, delete all tables first
 # Comment these out to make data persistant
-Drop(Person)
-Drop(Animal)
+Drop(Person, confirm=True)
+Drop(Animal, confirm=True)
 
 # Create tables with random data
 for i in range(10):
@@ -69,8 +69,8 @@ class Page(BaseDictabaseTable):
     pass
 
 
-Drop(Book)
-Drop(Page)
+Drop(Book, confirm=True)
+Drop(Page, confirm=True)
 
 book = Book(title='Title')
 page1 = Page(words='Words1')
@@ -87,7 +87,3 @@ page2['book'] = book
 print('book["pages"]=', book['pages'])
 print('page1["book"]=', page1['book'])
 print('page2["book"]=', page2['book'])
-
-# Notice that now your project space contains a MyDatabase.db which is a sqlite database.
-while True:
-    time.sleep(1)

@@ -2,14 +2,17 @@ import dataset
 import json
 from queue import Queue
 from threading import Timer
+import time
 
 # The DB URI used to store/read all data. By default uses sqlite. You can change the DB by calling SetDB_URI(newName)
 # This module supports any DBURI supported by SQLAlchemy
 global _DB_URI
 _DB_URI = 'sqlite:///MyDatabase.db'
+global _DB
+_DB = None
 
 
-def SetDB_URI(dburi):
+def SetDB_URI(dburi=None):
     '''
     Set the URI for the database.
     Supports any URI supported by SQLAlchemy. Defaults to sqllite
@@ -17,7 +20,10 @@ def SetDB_URI(dburi):
     :return:
     '''
     global _DB_URI
+    global _DB
+    dburi = dburi or 'sqlite:///MyDatabase.db'
     _DB_URI = dburi
+    _DB = dataset.connect(_DB_URI)
 
 
 # Some types are not supported, use this list of types to jsonify the value when reading/writing
@@ -168,8 +174,10 @@ class BaseDictabaseTable(dict):
             # Create a new newObj and insert it in the database
             super().__init__(*args, **kwargs)
             obj = _InsertDB(self)
+            while obj is None:
+                time.sleep(1)
+                print('178 newObj=', obj)
 
-            print('178 newObj=', obj)
             # self['id'] = newObj['id']  # i think this is causing a threading error
             super().__setitem__('id', obj['id'])
 
@@ -257,13 +265,21 @@ def _InsertDB(obj):
     :param obj: subclass of dict()
     :return:
     '''
+    global _DB
+    if _DB is None:
+        SetDB_URI()
 
     tableName = type(obj).__name__
-    with dataset.connect(_DB_URI) as DB:
-        DB[tableName].insert(obj)
-        DB.commit()
+
+
+    _DB[tableName].insert(obj)
+    _DB.commit()
 
     ret = FindOne(type(obj), **obj)
+    while ret is None:
+        print('not found, trying again', ret, obj, 'all=', FindAll(type(obj), **obj))
+        time.sleep(1)
+        ret = FindOne(type(obj), **obj)
 
     return ret
 
@@ -279,6 +295,10 @@ def _DoUpsertDB(newObj, listOfKeysThatMustMatch):
     :param listOfKeysThatMustMatch: list of str
     :return:
     '''
+    global _DB
+    if _DB is None:
+        SetDB_URI()
+
 
     listOfKeysThatMustMatch += ['id']
     listOfKeysThatMustMatch = list(set(listOfKeysThatMustMatch))  # remove duplicates
@@ -291,9 +311,8 @@ def _DoUpsertDB(newObj, listOfKeysThatMustMatch):
     upsertObj = oldObj
 
     tableName = type(upsertObj).__name__
-    with dataset.connect(_DB_URI) as DB:
-        DB[tableName].upsert(upsertObj, listOfKeysThatMustMatch)
-        DB.commit()
+    _DB[tableName].upsert(upsertObj, listOfKeysThatMustMatch)
+    _DB.commit()
 
 
 def FindOne(objType, **k):
@@ -310,18 +329,20 @@ def FindOne(objType, **k):
     else:
         print('Found newObj=', newObj)
     '''
+    global _DB
+    if _DB is None:
+        SetDB_URI()
+
 
     k = _ConvertDictValuesToJson(k)
 
     dbName = objType.__name__
 
-    with dataset.connect(_DB_URI) as DB:
-
-        ret = DB[dbName].find_one(**k)
-        if ret is None:
-            ret = None
-        else:
-            ret = objType(ret, doInsert=False)  # cast the return as its proper type
+    ret = _DB[dbName].find_one(**k)
+    if ret is None:
+        ret = None
+    else:
+        ret = objType(ret, doInsert=False)  # cast the return as its proper type
 
     return ret
 
@@ -342,6 +363,10 @@ def FindAll(objType, **k):
     :param k: an empty dict like {} will return all items from table
     :return: a generator that will iterate thru all the results found, may have length 0
     '''
+    global _DB
+    if _DB is None:
+        SetDB_URI()
+
 
     reverse = k.pop('_reverse', False)  # bool
 
@@ -355,27 +380,30 @@ def FindAll(objType, **k):
 
     k = _ConvertDictValuesToJson(k)
     dbName = objType.__name__
-    with dataset.connect(_DB_URI) as DB:
-        if len(k) is 0:
-            if orderBy is not None:
-                ret = DB[dbName].all(order_by=['{}'.format(orderBy)])
-            else:
-                ret = DB[dbName].all()
 
+    if len(k) is 0:
+        if orderBy is not None:
+            ret = _DB[dbName].all(order_by=['{}'.format(orderBy)])
         else:
+            ret = _DB[dbName].all()
 
-            if orderBy is not None:
-                ret = DB[dbName].find(order_by=['{}'.format(orderBy)], **k)
-            else:
-                ret = DB[dbName].find(**k)
+    else:
 
-        ret = [objType(item, doInsert=False) for item in list(ret)]
+        if orderBy is not None:
+            ret = _DB[dbName].find(order_by=['{}'.format(orderBy)], **k)
+        else:
+            ret = _DB[dbName].find(**k)
+
+    ret = [objType(item, doInsert=False) for item in list(ret)]
 
     return ret
 
 
-def Drop(objType):
-    _DoDrop(objType)
+def Drop(objType, confirm=False):
+    if confirm:
+        _DoDrop(objType)
+    else:
+        raise Exception('Cannot drop unless you pass confirm=True as kwarg')
 
 
 def _DoDrop(objType):
@@ -385,10 +413,13 @@ def _DoDrop(objType):
     :param objType:
     :return: None
     '''
+    global _DB
+    if _DB is None:
+        SetDB_URI()
+
     dbName = objType.__name__
-    with dataset.connect(_DB_URI) as DB:
-        DB[dbName].drop()
-        DB.commit()
+    _DB[dbName].drop()
+    _DB.commit()
 
 
 def Delete(obj):
@@ -402,14 +433,17 @@ def _DoDelete(obj):
     :param obj: subclass of dict
     :return: None
     '''
+    global _DB
+    if _DB is None:
+        SetDB_URI()
+
     obj = FindOne(type(obj), id=obj['id'])
 
     objType = type(obj)
     dbName = objType.__name__
 
-    with dataset.connect(_DB_URI) as DB:
-        DB[dbName].delete(**obj)
-        DB.commit()
+    _DB[dbName].delete(**obj)
+    _DB.commit()
 
 
 if __name__ == '__main__':

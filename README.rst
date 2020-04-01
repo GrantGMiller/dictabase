@@ -20,8 +20,8 @@ Create a new table
     class UserClass(BaseDictabaseTable):
         pass
 
-    newUser = UserClass(name='Grant', age=31)
-    newUser = UserClass(name='Bob', age=99)
+    newUser = New(UserClass, name='Grant', age=31)
+    newUser = New(UserClass, name='Bob', age=99)
     # there is now a sqlite database containing the 2 users. Yup, thats it!
 
 Look up items in the database
@@ -53,7 +53,7 @@ Read/Write to the database
     user = FindOne(UserClass, name='Grant')
 
     # increment the age of the user by 1
-    user['age'] = user['age'] + 1
+    user['age'] += 1
     # Thats it! the database has now been updated with the new age
 
 Drop a table
@@ -62,7 +62,7 @@ Drop a table
 ::
 
     from dictabase import Drop
-    Drop(UserClass)
+    Drop(UserClass, confirm=True)
     # the table has been removed from the database
 
 Delete a specific row in a table
