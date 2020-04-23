@@ -1,242 +1,125 @@
-import dataset
 import json
-from queue import Queue
-from threading import Timer
-import time
 
-# The DB URI used to store/read all data. By default uses sqlite. You can change the DB by calling SetDB_URI(newName)
-# This module supports any DBURI supported by SQLAlchemy
-global _DB_URI
-_DB_URI = 'sqlite:///MyDatabase.db'
-global _DB
-_DB = None
+import dataset
+import sys
+
+DEBUG = False
+
+oldPrint = print
+if DEBUG is False:
+    print = lambda *a, **k: None
 
 
-def SetDB_URI(dburi=None):
-    '''
-    Set the URI for the database.
-    Supports any URI supported by SQLAlchemy. Defaults to sqllite
-    :param dburi: str like 'sqlite:///MyDatabase.db'
-    :return:
-    '''
-    global _DB_URI
+def RegisterDBURI(dburi=None):
     global _DB
-    dburi = dburi or 'sqlite:///MyDatabase.db'
-    _DB_URI = dburi
-    _DB = dataset.connect(_DB_URI)
+    global _DBURI
+    if dburi is None:
+        if sys.platform.startswith('win'):
+            dburi = 'sqlite:///MyDatabase.db'
+        else:  # linux
+            dburi = 'sqlite:////MyDatabase.db'
+
+    _DBURI = dburi
+    _DB = dataset.connect(dburi)
+    print('_DB=', _DB)
 
 
-# Some types are not supported, use this list of types to jsonify the value when reading/writing
-_TYPE_CONVERT_TO_JSON = [list, dict]
+TYPES_NOT_TO_JSON = [int, type(None), str]
 
 
-def _ConvertDictValuesToJson(dictObj):
-    '''
-    This is used to convert jsonify a value before storing it in the db
-    :param dictObj:
-    :return:
-    '''
-    for key, value in dictObj.copy().items():
-        for aType in _TYPE_CONVERT_TO_JSON:
-            if isinstance(value, aType):
-                try:
-                    dictObj[key] = json.dumps(value)
-                except:
-                    pass
-                break
-    return dictObj
+def JSON_Dumps(value):
+    print('JSON_DUMPS(value=', value)
+    # json dumps for values that are not supported by database
+    if type(value) in TYPES_NOT_TO_JSON:
+        return value
+    else:
+        if isinstance(value, BaseTable):
+            value = {'id': value['id']}
+        return json.dumps(value)
 
 
-def _ConvertDictJsonValuesToNative(dictObj):
-    '''
-    This is used to json.load the value when reconstrucing the newObj from the db
-    :param dictObj:
-    :return:
-    '''
-    for key, value in dictObj.copy().items():
-        try:
-            newValue = json.loads(value)
-            dictObj[key] = newValue
-        except:
-            pass
-    return dictObj
+def _GetUpsertDict(d):
+    print('_GetUpsertDict(', d)
+    tempDict = dict(d)
+    for key, value in tempDict.copy().items():
+        tempDict[key] = JSON_Dumps(value)
+    print('_GetUpsertDict return', tempDict)
+    return tempDict
 
 
-class BaseDictabaseTable(dict):
-    '''
-    This class saves any changes to a database.
-    You should subclass this class to create a new table.
-
-    For example:
-        class UserClass(BaseDictabaseTable):
-            pass
-
-        user = UserClass(email='me@website.com', name='John')
-
-        # Then later in your code you can call
-
-        result = FindOne(UserClass, email='me@website.com')
-        print('result=', result)
-        >> result= UserClass(email='me@website.com', name='John')
-    '''
-
-    uniqueKeys = ['id']  # override this in your subclass to force a column to have unique values per row
-
-    def AfterInsert(self, *args, **kwargs):
-        '''
-        Override this method to do something after newObj is inserted in database
-
-        Example:
-
-        class Post(BaseDictabaseTable):
-
-            def AfterInsert(self):
-                self['insertionTimestamp'] = datetime.datetime.now()
-        '''
-
-    def CustomGetKey(self, key, value):
-        '''
-        This module relies on the types supported by the dataset package.
-        If you have a custom type, you can use override this method to change the behavior of getting a value from the db
-
-        Example:
-
-        class Post(BaseDictabaseTable):
-
-            def CustomGetKey(self, key, value):
-                if key == 'content':
-                    return key, Markup(value) # cast the value as a flask.Markup newObj
-                else:
-                    return key, value # return the value normally
-
-        '''
-        return key, value
-
-    def CustomSetKey(self, key, value):
-        '''
-        This module relies on the types supported by the dataset package.
-        If you have a custom type, you can use this method to convert it to a supported type before writing it to the db
-
-        :param key:
-        :param value:
-        :return: tuple of (newKey, newValue)
-
-        Example:
-
-        class MyCustomClass(BaseDictabaseTable):
-            def CustomSetKey(self, key, value):
-                if key == 'CustomKeyNotSupportedByDataSet':
-                    value = dict(value)
-                    return key, value
-                else:
-                    return key, value
-        '''
-        return key, value
+class BaseTable(dict):
+    # calls the self._upsert anytime an item changes
+    __slots__ = ["callback"]
 
     def __init__(self, *args, **kwargs):
-        '''
-        Accepts same args/kwargs as normal python dict
+        dict.__init__(self, *args, **kwargs)
 
-        :param args:
-        :param kwargs:
-        '''
+    def _wrapSetter(method):
+        def setter_wrapper(self, *args, **kwargs):
+            print('setter_wrapper: method=', method, ', a=', args, ', k=', kwargs)
+            if 'id' in self:
+                doInsert = False
+            else:
+                doInsert = True
 
-        doInsert = kwargs.pop('doInsert', True)
-        if doInsert is True:
-            # First check if there is already an newObj in database with the unique keys
+            result = method(self, *args, **kwargs)
 
-            kwargs = _ConvertDictValuesToJson(kwargs)
+            if 'id' in self:
+                self._doUpsert()
+            elif doInsert:
+                self._doInsert()
 
-            searchDict = dict()
-            for key in self.uniqueKeys:
-                if key in kwargs:
-                    searchDict[key] = kwargs[key]
+            return result
 
-            if len(searchDict) > 0:
-                # check for duplicate rows in the db
-                searchResults = FindAll(type(self), **searchDict)
+        return setter_wrapper
 
-                duplicateExists = False
-                for item in searchResults:
-                    duplicateExists = True
-                    # if len(searchResults) is 0, this wont happen and duplicateExists == False
-                    break
+    __delitem__ = _wrapSetter(dict.__delitem__)
+    __setitem__ = _wrapSetter(dict.__setitem__)
+    clear = _wrapSetter(dict.clear)
+    pop = _wrapSetter(dict.pop)
+    popitem = _wrapSetter(dict.popitem)
+    setdefault = _wrapSetter(dict.setdefault)
+    update = _wrapSetter(dict.update)
 
-                if duplicateExists:
-                    raise Exception(
-                        'Duplicate newObj. searchDict={}, kwargs={}, uniqueKeys={}, searchResults={}'.format(
-                            searchDict,
-                            kwargs,
-                            self.uniqueKeys,
-                            searchResults
-                        ))
+    def _wrapGetter(method):
+        def getter_wrapper(self, *args, **kwargs):
+            print('getter_wrapper: method=', method, ', a=', args, ', k=', kwargs)
+            result = method(self, *args, **kwargs)
+            try:
+                result = json.loads(result)
+            except:
+                pass
+            return result
 
-            # Create a new newObj and insert it in the database
-            super().__init__(*args, **kwargs)
-            obj = _InsertDB(self)
-            while obj is None:
-                time.sleep(1)
-                print('178 newObj=', obj)
+        return getter_wrapper
 
-            # self['id'] = newObj['id']  # i think this is causing a threading error
-            super().__setitem__('id', obj['id'])
+    pop = _wrapGetter(pop)
+    popitem = _wrapGetter(popitem)
+    get = _wrapGetter(dict.get)
+    __getitem__ = _wrapGetter(dict.__getitem__)
 
-            self.AfterInsert()  # Call this so the programmer can specify actions after init
+    def items(self):
+        for k, v in super().items():
+            try:
+                v = json.loads(v)
+            except:
+                pass
+            yield k, v
 
-        else:
-            # This is called by FindOne or FindAll to re-construct an newObj from the database
-            dictObj = args[0]
-            super().__init__(**dictObj)
+    def _doUpsert(self):
+        print('_doUpsert(self=', self)
+        tableName = type(self).__name__
+        _DB.begin()
+        _DB[tableName].upsert(_GetUpsertDict(self), ['id'])  # find row with matching 'id' and update it
+        _DB.commit()
 
-    def _Save(self):
-        '''
-        Write the changes to the database
-        :return:
-        '''
-        _UpsertDB(self, self.uniqueKeys)
-
-    def __setitem__(self, key, value):
-        '''
-        Any time a value is set to this newObj, the change will be updated in the database
-        :param key:
-        :param value:
-        :return:
-        '''
-        key, value = self.CustomSetKey(key, value)
-
-        for aType in _TYPE_CONVERT_TO_JSON:
-            if isinstance(value, aType):
-                value = json.dumps(value)
-                break
-
-        super().__setitem__(key, value)
-        self._Save()
-
-    def __getitem__(self, key):
-        superValue = super().__getitem__(key)
-        try:
-            value = json.loads(superValue)
-            ret = value
-        except Exception as err:
-            ret = superValue
-
-        _, ret = self.CustomGetKey(key, ret)
-        return ret
-
-    def get(self, *a, **k):
-        '''
-        Works the same as the built in python dict.get
-        :param a:
-        :param k:
-        :return:
-        '''
-        superValue = super().get(*a, **k)
-        try:
-            value = json.loads(superValue)
-            return value
-        except Exception as err:
-            print('92 err=', err, 'return', superValue)
-            return superValue
+    def _doInsert(self):
+        print('_doInsert(self=', self)
+        tableName = type(self).__name__
+        _DB.begin()
+        ID = _DB[tableName].insert(_GetUpsertDict(self))
+        _DB.commit()
+        self['id'] = ID
 
     def __str__(self):
         '''
@@ -245,10 +128,9 @@ class BaseDictabaseTable(dict):
         '''
         itemsList = []
         for k, v, in self.items():
-            try:
-                itemsList.append(('{}={}'.format(k, v.encode())))
-            except:
-                itemsList.append(('{}={}'.format(k, v)))
+            if isinstance(v, str) and len(v) > 25:
+                v = v[:25]
+            itemsList.append(('{}={}(type={})'.format(k, v, type(v).__name__)))
 
         return '<{}: {}>'.format(
             type(self).__name__,
@@ -259,201 +141,361 @@ class BaseDictabaseTable(dict):
         return str(self)
 
 
-def _InsertDB(obj):
+def New(cls, **kwargs):
     '''
-    Add a new newObj to the db
-    :param obj: subclass of dict()
-    :return:
+    Creates a new row in the table(cls)
+    Returns the new dict-like object
+
+    cls should inherit from BaseTable
     '''
-    global _DB
-    if _DB is None:
-        SetDB_URI()
+    print('New(cls=', cls, ', kwargs=', kwargs)
 
-    tableName = type(obj).__name__
-
-
-    _DB[tableName].insert(obj)
-    _DB.commit()
-
-    ret = FindOne(type(obj), **obj)
-    while ret is None:
-        print('not found, trying again', ret, obj, 'all=', FindAll(type(obj), **obj))
-        time.sleep(1)
-        ret = FindOne(type(obj), **obj)
-
-    return ret
+    newObj = cls()
+    newObj.update(**kwargs)
+    return newObj
 
 
-def _UpsertDB(obj, listOfKeysThatMustMatch):
-    _DoUpsertDB(obj, listOfKeysThatMustMatch)
+def FindOne(cls, **k):
+    # _DB.begin() # dont do this
+    print('FindOne(cls=', cls, ', k=', k)
+    dbName = cls.__name__
+    tbl = _DB[dbName]
+    ret = tbl.find_one(**k)
 
-
-def _DoUpsertDB(newObj, listOfKeysThatMustMatch):
-    '''
-    Update and/or Insert the obj into the db
-    :param newObj: subclass of dict()
-    :param listOfKeysThatMustMatch: list of str
-    :return:
-    '''
-    global _DB
-    if _DB is None:
-        SetDB_URI()
-
-
-    listOfKeysThatMustMatch += ['id']
-    listOfKeysThatMustMatch = list(set(listOfKeysThatMustMatch))  # remove duplicates
-
-    newType = type(newObj)
-
-    oldObj = FindOne(newType, id=dict(newObj)['id'])
-    oldObj.update(newObj)
-
-    upsertObj = oldObj
-
-    tableName = type(upsertObj).__name__
-    _DB[tableName].upsert(upsertObj, listOfKeysThatMustMatch)
-    _DB.commit()
-
-
-def FindOne(objType, **k):
-    '''
-    Find an newObj in the db and return it
-    :param objType:
-    :param k:
-    :return: None if no newObj found, or the newObj itself
-
-    Example:
-    newObj = FindOne(MyClass, name='grant')
-    if newObj is None:
-        print('no newObj found')
+    if ret:
+        ret = cls(ret)
+        print('FindOne return', ret)
+        return ret
     else:
-        print('Found newObj=', newObj)
-    '''
-    global _DB
-    if _DB is None:
-        SetDB_URI()
+        print('FindOne return None')
+        return None
 
 
-    k = _ConvertDictValuesToJson(k)
-
-    dbName = objType.__name__
-
-    ret = _DB[dbName].find_one(**k)
-    if ret is None:
-        ret = None
-    else:
-        ret = objType(ret, doInsert=False)  # cast the return as its proper type
-
-    return ret
-
-
-def FindAll(objType, **k):
-    '''
-    Find all newObj in database that match the **k
-
-    Also pass special kwargs to return objects in a certain order/limit
-
-    FindAll(MyClass, _reverse=True) > returns all objects in reverse order
-
-    FindAll(MyClass, _orderBy='Name') > returns all objects sorted by the "Name" column
-
-    FindAll(MyClass, _limit=5) > return first 5 matching objects
-
-    :param objType: type
-    :param k: an empty dict like {} will return all items from table
-    :return: a generator that will iterate thru all the results found, may have length 0
-    '''
-    global _DB
-    if _DB is None:
-        SetDB_URI()
-
-
+def FindAll(cls, **k):
+    # special kwargs
     reverse = k.pop('_reverse', False)  # bool
-
     orderBy = k.pop('_orderBy', None)  # str
-
     if reverse is True:
         if orderBy is not None:
             orderBy = '-' + orderBy
         else:
             orderBy = '-id'
 
-    k = _ConvertDictValuesToJson(k)
-    dbName = objType.__name__
-
+    # do look up
+    dbName = cls.__name__
     if len(k) is 0:
-        if orderBy is not None:
-            ret = _DB[dbName].all(order_by=['{}'.format(orderBy)])
-        else:
-            ret = _DB[dbName].all()
-
+        ret = _DB[dbName].all(order_by=[f'{orderBy}'])
     else:
-
         if orderBy is not None:
             ret = _DB[dbName].find(order_by=['{}'.format(orderBy)], **k)
         else:
             ret = _DB[dbName].find(**k)
 
-    ret = [objType(item, doInsert=False) for item in list(ret)]
+    # yield type-cast items one by one
+    for item in ret:
+        yield cls(item)
 
-    return ret
 
-
-def Drop(objType, confirm=False):
+def Drop(cls, confirm=False):
+    global _DB
     if confirm:
-        _DoDrop(objType)
+        count = 0
+        while count < 5:
+            try:
+                _DB.begin()
+                tableName = cls.__name__
+                _DB[tableName].drop()
+                _DB.commit()
+
+                # _DB = dataset.connect(_DBURI)
+                break
+            except:
+                pass
+            count += 1
     else:
         raise Exception('Cannot drop unless you pass confirm=True as kwarg')
 
 
-def _DoDrop(objType):
-    '''
-    Delete an entire table from the database
-
-    :param objType:
-    :return: None
-    '''
-    global _DB
-    if _DB is None:
-        SetDB_URI()
-
-    dbName = objType.__name__
-    _DB[dbName].drop()
-    _DB.commit()
-
-
 def Delete(obj):
-    _DoDelete(obj)
-
-
-def _DoDelete(obj):
-    '''
-    Delete a row from the database
-
-    :param obj: subclass of dict
-    :return: None
-    '''
-    global _DB
-    if _DB is None:
-        SetDB_URI()
-
-    obj = FindOne(type(obj), id=obj['id'])
-
-    objType = type(obj)
-    dbName = objType.__name__
-
+    _DB.begin()
+    dbName = type(obj).__name__
     _DB[dbName].delete(**obj)
     _DB.commit()
 
 
 if __name__ == '__main__':
     import time
+    import random
+
+    RegisterDBURI(
+        # 'postgres://xfgkxpzruxledr:5b83aece4fbad7827cb1d9df48bf5b9c9ad2b33538662308a9ef1d8701bfda4b@ec2-35-174-88-65.compute-1.amazonaws.com:5432/d8832su8tgbh82'
+        None,  # use default sqllite
+    )
 
 
-    class A(BaseDictabaseTable):
-        pass
+    def TestA():
+        class A(BaseTable):
+            pass
+
+        Drop(A, confirm=True)
+
+        for i in range(10):
+            New(A, time=time.asctime(), count=i)
+
+        oldPrint('FindAll(A)=', list(FindAll(A)))
+        oldPrint('FindOne(A, count=5)=', FindOne(A, count=5))
+
+        for item in FindAll(A):
+            item['count'] += 10
+
+        oldPrint('FindAll(A)=', list(FindAll(A)))
+
+        for i in range(0, 10, 2):
+            obj = FindOne(A, count=i + 10)
+            if obj:
+                Delete(obj)
+
+        oldPrint('FindAll(A)=', list(FindAll(A)))
 
 
-    a = A(time=time.asctime())
-    print('a=', a)
-    print('FindAll=', FindAll(A))
+    def TestBytes():
+        # test bytes type
+        class B(BaseTable):
+            pass
+
+        Drop(B, confirm=True)
+
+        d = ('0' * 100).encode()
+        try:
+            large = New(B, data=d)
+
+        except Exception as e:
+            oldPrint(e)
+        large = New(B, data=d.decode())
+        oldPrint("large['data'] == d is", large['data'] == d)
+
+        largeID = large['id']
+
+        findLarge = FindOne(B, id=largeID)
+        oldPrint("findLarge['data'] == d is", findLarge['data'].encode() == d)
+
+
+    def TestTypes():
+
+        class Person(BaseTable):
+            # Each subclass of BaseTable produces another table in the db
+            pass
+
+        class Animal(BaseTable):
+            pass
+
+        # For testing, delete all tables first
+        # Comment these out to make data persistant
+        Drop(Person, confirm=True)
+        Drop(Animal, confirm=True)
+
+        # Create tables with random data
+        for i in range(10):
+            # Instantiating a new Person newObj adds a new row in the db
+            newPerson = New(Person,
+                            name='Name{}'.format(i),
+                            age=random.randint(1, 100),
+                            )
+            oldPrint('newPerson=', newPerson)
+
+            newAnimal = New(Animal,
+                            kind=random.choice(['Cat', 'Dog']),
+                            name='Fluffy{}'.format(i),
+                            age=random.randint(1, 10),
+                            )
+            oldPrint('newAnimal=', newAnimal)
+
+        # FindAll() returns all items from the database that match
+        # you can also use keywords like '_limit', '_reverse', '_orderBy'
+        oldPrint('Number of animals of age 5: {}'.format(
+            len(list(FindAll(Animal, age=5))))
+        )
+
+        # FindOne() returns an newObj found in the database
+        person5 = FindOne(Person, name='Name5')
+        oldPrint('Age of Person5=', person5['age'])
+
+        # Remove any animals with age >= 5
+        for animal in FindAll(Animal):
+            if animal['age'] >= 5:
+                oldPrint('Removing animal=', animal)
+                Delete(animal)
+
+        oldPrint('Remaining Animals=', FindAll(Animal))
+
+        # Test Relational Mapping
+
+        class Book(BaseTable):
+            pass
+
+        class Page(BaseTable):
+            pass
+
+        Drop(Book, confirm=True)
+        Drop(Page, confirm=True)
+
+        book = Book(title='Title')
+        page1 = Page(words='Words1')
+        page2 = Page(words='Words2')
+
+        oldPrint('77 book=', book)
+        oldPrint('78 page1=', page1)
+        oldPrint('79 page2=', page2)
+
+        book['pages'] = [page1, page2]
+        page1['book'] = book
+        page2['book'] = book
+
+        oldPrint('book["pages"]=', book['pages'])
+        oldPrint('page1["book"]=', page1['book'])
+        oldPrint('page2["book"]=', page2['book'])
+
+
+    def TestList():
+        class TestListTable(BaseTable):
+            pass
+
+        Drop(TestListTable, confirm=True)
+        item = New(TestListTable)
+        item['list'] = [1, 2, 3]
+
+        findItem = FindOne(TestListTable)
+        oldPrint('findItem=', findItem)
+
+        for k, v in findItem.items():
+            oldPrint(327, k, '=', v, 'type=', type(v))
+            if k == 'list':
+                if not isinstance(v, list):
+                    raise TypeError('Should be type list')
+
+        for k in findItem:
+            v = findItem.get(k)
+            oldPrint(319, k, '=', v, 'type=', type(v))
+            if k == 'list':
+                if not isinstance(v, list):
+                    raise TypeError('Should be type list')
+
+        for k in findItem:
+            v = findItem[k]
+            oldPrint(325, k, '=', v, 'type=', type(v))
+            if k == 'list':
+                if not isinstance(v, list):
+                    raise TypeError('Should be type list')
+
+        # test list of list
+        newObj = New(TestListTable)
+        newObj['listOfList'] = [[i for i in range(3)] for i in range(5, 10)]
+        print('367 newObj=', newObj)
+
+        foundObj = FindOne(TestListTable, id=newObj['id'])
+        print('370 foundObj=', foundObj)
+        if not isinstance(foundObj['listOfList'], list):
+            raise TypeError('Should be type list')
+
+        if not isinstance(foundObj['listOfList'][0], list):
+            raise TypeError('Should be type list')
+
+        # test list of list of strings
+        l = [[str(i) for i in range(3)] for i in range(5, 10)]
+        newObj = New(TestListTable, listOfListOfStrings=l)
+        print('380 newObj=', newObj)
+
+        foundObj = FindOne(TestListTable, id=newObj['id'])
+        print('383 foundObj=', foundObj)
+        if not isinstance(foundObj['listOfListOfStrings'], list):
+            raise TypeError('Should be type list')
+
+        print("foundObj['listOfListOfStrings'][0]=", foundObj['listOfListOfStrings'][0])
+        print('type=', type(foundObj['listOfListOfStrings'][0][0]))
+        if not isinstance(foundObj['listOfListOfStrings'][0][0], str):
+            raise TypeError('Should be type list')
+
+
+    def TestNew():
+        class Thingamajig(BaseTable):
+            pass
+
+        obj = New(Thingamajig, key1='value1')
+        if 'id' not in obj:
+            raise Exception('Should have returned a new ID')
+        oldPrint('New Thingamajig=', obj)
+
+
+    def TestDict():
+        class TestDictTable(BaseTable):
+            pass
+
+        Drop(TestDictTable, confirm=True)
+        item = New(TestDictTable)
+        item['dict'] = {1: 'one', '2': 'two', 'three': 3, 'four': '4'}
+
+        findItem = FindOne(TestDictTable, id=item['id'])
+        oldPrint('findItem=', findItem)
+
+        for k, v in findItem.items():
+            oldPrint(327, k, '=', v, 'type=', type(v))
+            if k == 'dict':
+                if not isinstance(v, dict):
+                    raise TypeError('Should be type dict')
+
+        for k in findItem:
+            v = findItem.get(k)
+            oldPrint(319, k, '=', v, 'type=', type(v))
+            if k == 'dict':
+                if not isinstance(v, dict):
+                    raise TypeError('Should be type dict')
+
+        for k in findItem:
+            v = findItem[k]
+            oldPrint(325, k, '=', v, 'type=', type(v))
+            if k == 'dict':
+                if not isinstance(v, dict):
+                    raise TypeError('Should be type dict')
+
+
+    def TestNone():
+        class TableNone(BaseTable):
+            pass
+
+        obj = New(TableNone)
+        obj['none'] = None
+
+        foundObj = FindOne(TableNone, id=obj['id'])
+        if not isinstance(foundObj['none'], type(None)):
+            raise TypeError('Should have returned NoneType')
+
+
+    def TestJsonableInNew():
+        class JsonalbeTest(BaseTable):
+            pass
+
+        Drop(JsonalbeTest, confirm=True)
+
+        obj1 = New(JsonalbeTest)
+        obj1['l'] = [1, 2, 3, [4, 5, 6]]
+        print('obj1=', obj1)
+
+        foundObj1 = FindOne(JsonalbeTest, id=obj1['id'])
+        print('foundObj1=', foundObj1)
+
+        obj2 = New(JsonalbeTest, l=[1, 2, 3, [4, 5, 6]])
+        print('obj2=', obj2)
+
+        foundObj2 = FindOne(JsonalbeTest, id=obj2['id'])
+        print('foundObj2=', foundObj2)
+
+
+    #################
+    TestA()
+    TestBytes()
+    TestTypes()
+    TestList()
+    TestNew()
+    TestDict()
+    TestNone()
+    TestJsonableInNew()
