@@ -3,7 +3,7 @@ import json
 import dataset
 import sys
 
-DEBUG = False
+DEBUG = True
 
 oldPrint = print
 if DEBUG is False:
@@ -24,16 +24,22 @@ def RegisterDBURI(dburi=None):
     print('_DB=', _DB)
 
 
-TYPES_NOT_TO_JSON = [int, type(None), str]
+DB_ALLOWABLE_TYPES = {
+    int,
+    type(None),
+    str
+}  # use set() to make "in" lookups faster
 
 
 def JSON_Dumps(value):
     print('JSON_DUMPS(value=', value)
     # json dumps for values that are not supported by database
-    if type(value) in TYPES_NOT_TO_JSON:
+    if type(value) in DB_ALLOWABLE_TYPES:
         return value
     else:
         if isinstance(value, BaseTable):
+            # if there is a reference to a BaseTable object stored in a value of another BaseTable object
+            # only store the id to prevent circular reference
             value = {'id': value['id']}
         return json.dumps(value)
 
@@ -42,17 +48,22 @@ def _GetUpsertDict(d):
     print('_GetUpsertDict(', d)
     tempDict = dict(d)
     for key, value in tempDict.copy().items():
-        tempDict[key] = JSON_Dumps(value)
+        if not isinstance(value, int):
+            tempDict[key] = JSON_Dumps(value)
     print('_GetUpsertDict return', tempDict)
     return tempDict
 
 
 class BaseTable(dict):
     # calls the self._upsert anytime an item changes
-    __slots__ = ["callback"]
+    __slots__ = [
+        "_storeAsJson",  # { key: bool(shouldUseJson), }
+    ]
 
     def __init__(self, *args, **kwargs):
-        dict.__init__(self, *args, **kwargs)
+        print('BaseTable.__init__(args=', args, ', kwargs=', kwargs)
+        self._storeAsJson = {}
+        super().__init__(self, *args, **kwargs)
 
     def _wrapSetter(method):
         def setter_wrapper(self, *args, **kwargs):
@@ -85,10 +96,11 @@ class BaseTable(dict):
         def getter_wrapper(self, *args, **kwargs):
             print('getter_wrapper: method=', method, ', a=', args, ', k=', kwargs)
             result = method(self, *args, **kwargs)
-            try:
-                result = json.loads(result)
-            except:
-                pass
+            if not isinstance(result, int):
+                try:
+                    result = json.loads(result)
+                except:
+                    pass
             return result
 
         return getter_wrapper
@@ -99,11 +111,14 @@ class BaseTable(dict):
     __getitem__ = _wrapGetter(dict.__getitem__)
 
     def items(self):
+        print('BaseTable.items')
         for k, v in super().items():
-            try:
-                v = json.loads(v)
-            except:
-                pass
+            print('k=', k, ', v=', v, ', type(v)=', type(v))
+            if not isinstance(v, int):
+                try:
+                    v = json.loads(v)
+                except:
+                    pass
             yield k, v
 
     def _doUpsert(self):
@@ -150,8 +165,9 @@ def New(cls, **kwargs):
     '''
     print('New(cls=', cls, ', kwargs=', kwargs)
 
-    newObj = cls()
-    newObj.update(**kwargs)
+    newObj = cls(**kwargs)
+    print('159 New( newObj=', newObj)
+    newObj.update()
     return newObj
 
 
@@ -163,7 +179,7 @@ def FindOne(cls, **k):
     ret = tbl.find_one(**k)
 
     if ret:
-        ret = cls(ret)
+        ret = cls(**ret)
         print('FindOne return', ret)
         return ret
     else:
@@ -272,12 +288,12 @@ if __name__ == '__main__':
         except Exception as e:
             oldPrint(e)
         large = New(B, data=d.decode())
-        oldPrint("large['data'] == d is", large['data'] == d)
+        oldPrint("large['data'] == baseTableObj is", large['data'] == d)
 
         largeID = large['id']
 
         findLarge = FindOne(B, id=largeID)
-        oldPrint("findLarge['data'] == d is", findLarge['data'].encode() == d)
+        oldPrint("findLarge['data'] == baseTableObj is", findLarge['data'].encode() == d)
 
 
     def TestTypes():
@@ -490,12 +506,52 @@ if __name__ == '__main__':
         print('foundObj2=', foundObj2)
 
 
+    def TestClassWithInitParms():
+        class CustomizedInitClass(BaseTable):
+            def __init__(self, string, integer, *a, **k):
+                print("CustomizedInitClass.__init__(", string, integer, a, k)
+                string = str(string)
+                integer = int(integer)
+                super().__init__(string=string, integer=integer)
+
+        obj = New(CustomizedInitClass, string=12345, integer='98765')
+        print('502 obj=', obj)
+
+        foundObj = FindOne(CustomizedInitClass, id=obj['id'])
+        print('503 foundObj=', foundObj)
+
+        if not isinstance(foundObj['string'], str):
+            raise TypeError('"string" should be str')
+
+        if not isinstance(foundObj['integer'], int):
+            raise TypeError('"integer" should be int')
+
+
+    def TestIntegers():
+        class IntegerTable(BaseTable):
+            pass
+
+        obj = New(IntegerTable, intOne=1, stringOne='1')
+        print('525 obj=', obj)
+
+        foundObj = FindOne(IntegerTable, id=obj['id'])
+        print('528 foundObj=', foundObj)
+
+        if not isinstance(foundObj['intOne'], int):
+            raise TypeError('"intOne" should be int')
+
+        if not isinstance(foundObj['stringOne'], str):
+            raise TypeError('"stringOne" should be str')
+
+
     #################
-    TestA()
-    TestBytes()
-    TestTypes()
-    TestList()
-    TestNew()
-    TestDict()
-    TestNone()
-    TestJsonableInNew()
+    # TestA()
+    # TestBytes()
+    # TestTypes()
+    # TestList()
+    # TestNew()
+    # TestDict()
+    # TestNone()
+    # TestJsonableInNew()
+    # TestClassWithInitParms()
+    TestIntegers()
