@@ -4,7 +4,7 @@ import datetime
 if __name__ == '__main__':
     import time
     import random
-    from dictabase3 import (
+    from dictabase import (
         RegisterDBURI,
         BaseTable,
         New,
@@ -16,8 +16,7 @@ if __name__ == '__main__':
     )
 
     RegisterDBURI(
-        # 'postgres://xfgkxpzruxledr:5b83aece4fbad7827cb1d9df48bf5b9c9ad2b33538662308a9ef1d8701bfda4b@ec2-35-174-88-65.compute-1.amazonaws.com:5432/d8832su8tgbh82'
-        None,  # use default sqllite
+        # None,  # use default sqllite
     )
 
 
@@ -114,7 +113,7 @@ if __name__ == '__main__':
         print("findLarge['data'] == baseTableObj is", findLarge['data'].encode() == d)
 
 
-    def TestTypesPersonAnimal():
+    def TestSimpleChild():
 
         class Person(BaseTable):
             # Each subclass of BaseTable produces another table in the db
@@ -168,7 +167,7 @@ if __name__ == '__main__':
 
         print('Remaining Animals=', FindAll(Animal))
 
-    def TestTypesBookPages():
+    def TestChildWithComplexKeys():
         # Test Relational Mapping
 
         class Book(BaseTable):
@@ -221,68 +220,6 @@ if __name__ == '__main__':
         print('page2["book"]=', page2['book'])
 
 
-    def TestList():
-        class TestListTable(BaseTable):
-            pass
-
-        Drop(TestListTable, confirm=True)
-
-        item = New(TestListTable)
-        item['list'] = [1, 2, 3]
-        print(411, 'item=', item)
-
-        findItem = FindOne(TestListTable)
-        print('findItem=', findItem)
-
-        for k, v in findItem.items():
-            print(327, k, '=', v, 'type=', type(v))
-            if k == 'list':
-                if not isinstance(v, list):
-                    raise TypeError('Should be type list')
-
-        for k in findItem:
-            v = findItem.get(k)
-            print(319, k, '=', v, 'type=', type(v))
-            if k == 'list':
-                if not isinstance(v, list):
-                    raise TypeError('Should be type list')
-
-        for k in findItem:
-            v = findItem[k]
-            print(325, k, '=', v, 'type=', type(v))
-            if k == 'list':
-                if not isinstance(v, list):
-                    raise TypeError('Should be type list')
-
-        # test list of list
-        newObj = New(TestListTable)
-        newObj['listOfList'] = [[i for i in range(3)] for i in range(5, 10)]
-        print('367 newObj=', newObj)
-
-        foundObj = FindOne(TestListTable, id=newObj['id'])
-        print('370 foundObj=', foundObj)
-        if not isinstance(foundObj['listOfList'], list):
-            raise TypeError('Should be type list')
-
-        if not isinstance(foundObj['listOfList'][0], list):
-            raise TypeError('Should be type list')
-
-        # test list of list of strings
-        l = [[str(i) for i in range(3)] for i in range(5, 10)]
-        newObj = New(TestListTable, listOfListOfStrings=l)
-        print('380 newObj=', newObj)
-
-        foundObj = FindOne(TestListTable, id=newObj['id'])
-        print('383 foundObj=', foundObj)
-        if not isinstance(foundObj['listOfListOfStrings'], list):
-            raise TypeError('Should be type list')
-
-        print("foundObj['listOfListOfStrings'][0]=", foundObj['listOfListOfStrings'][0])
-        print('type=', type(foundObj['listOfListOfStrings'][0][0]))
-        if not isinstance(foundObj['listOfListOfStrings'][0][0], str):
-            raise TypeError('Should be type list')
-
-
     def TestNew():
         class Thingamajig(BaseTable):
             pass
@@ -291,38 +228,6 @@ if __name__ == '__main__':
         if 'id' not in obj:
             raise Exception('Should have returned a new ID')
         print('New Thingamajig=', obj)
-
-
-    def TestDict():
-        class TestDictTable(BaseTable):
-            pass
-
-        Drop(TestDictTable, confirm=True)
-        item = New(TestDictTable)
-        item['dict'] = {1: 'one', '2': 'two', 'three': 3, 'four': '4'}
-
-        findItem = FindOne(TestDictTable, id=item['id'])
-        print('findItem=', findItem)
-
-        for k, v in findItem.items():
-            print(327, k, '=', v, 'type=', type(v))
-            if k == 'dict':
-                if not isinstance(v, dict):
-                    raise TypeError('Should be type dict')
-
-        for k in findItem:
-            v = findItem.get(k)
-            print(319, k, '=', v, 'type=', type(v))
-            if k == 'dict':
-                if not isinstance(v, dict):
-                    raise TypeError('Should be type dict')
-
-        for k in findItem:
-            v = findItem[k]
-            print(325, k, '=', v, 'type=', type(v))
-            if k == 'dict':
-                if not isinstance(v, dict):
-                    raise TypeError('Should be type dict')
 
 
     def TestNone():
@@ -335,26 +240,6 @@ if __name__ == '__main__':
         foundObj = FindOne(TableNone, id=obj['id'])
         if not isinstance(foundObj['none'], type(None)):
             raise TypeError('Should have returned NoneType')
-
-
-    def TestJsonableInNew():
-        class JsonalbeTest(BaseTable):
-            pass
-
-        Drop(JsonalbeTest, confirm=True)
-
-        obj1 = New(JsonalbeTest)
-        obj1['l'] = [1, 2, 3, [4, 5, 6]]
-        print('obj1=', obj1)
-
-        foundObj1 = FindOne(JsonalbeTest, id=obj1['id'])
-        print('foundObj1=', foundObj1)
-
-        obj2 = New(JsonalbeTest, l=[1, 2, 3, [4, 5, 6]])
-        print('obj2=', obj2)
-
-        foundObj2 = FindOne(JsonalbeTest, id=obj2['id'])
-        print('foundObj2=', foundObj2)
 
 
     def TestClassWithInitParms():
@@ -400,17 +285,14 @@ if __name__ == '__main__':
     ##########
 
     TestSimple()
-    # TestA()
-    # TestBytes()
-    # TestTypesPersonAnimal()
-    # TestTypesBookPages()
-    # TestList()
-    # TestNew()
-    # TestDict()
-    # TestNone()
-    # TestJsonableInNew()
-    # TestClassWithInitParms()
-    # TestIntegers()
+    TestChildWithComplexKeys()
+    TestSimpleChild()
+    TestA()
+    TestBytes()
+    TestNew()
+    TestNone()
+    TestClassWithInitParms()
+    TestIntegers()
 
     #####################
     CommitAll()
