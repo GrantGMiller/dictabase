@@ -17,7 +17,7 @@ Create a new table
 
     # Create a table representing users
     from dictabase import BaseDictabaseTable
-    class UserClass(BaseDictabaseTable):
+    class UserClass(BaseTable):
         pass
 
     newUser = New(UserClass, name='Grant', age=31)
