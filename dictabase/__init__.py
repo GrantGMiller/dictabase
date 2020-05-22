@@ -1,7 +1,7 @@
 import json
-
 import dataset
 import sys
+import datetime
 
 DEBUG = True
 
@@ -26,115 +26,108 @@ def RegisterDBURI(dburi=None):
 
 DB_ALLOWABLE_TYPES = {
     int,
+    float,
     type(None),
-    str
+    str,
+    bool,
+    datetime.datetime,
+    datetime.date,
+    datetime.time,
+
 }  # use set() to make "in" lookups faster
 
 
-def JSON_Dumps(value):
-    print('JSON_DUMPS(value=', value)
-    # json dumps for values that are not supported by database
-    if type(value) in DB_ALLOWABLE_TYPES:
+class RowHandler:
+    def __init__(self, **kwargs):
+        print('RowHandler.__init__(', kwargs)
+        self._data = dict(**kwargs)  # should be a db safe dict
+        if '_jsonKeys' in kwargs and kwargs['_jsonKeys']:
+            self._jsonKeys = set(json.loads(kwargs['_jsonKeys']))
+        else:
+            self._jsonKeys = set()
+
+    def _ConvertToDBSafe(self, key, value):
+        print('RowHandler._ConvertToDBSafe(', key, value)
+        if isinstance(value, RowHandler):
+            value = {
+                'id': value['id'],
+                '_type': type(value).__name__,
+            }
+        elif isinstance(value, list):
+            for index, subValue in enumerate(value.copy()):
+                if isinstance(subValue, RowHandler):
+                    value[index] = {
+                        'id': subValue['id'],
+                        '_type': type(subValue).__name__,
+                    }
+
+        if type(value) not in DB_ALLOWABLE_TYPES:
+            print('json.dumps(', value)
+            value = json.dumps(value)
+            self._jsonKeys.add(key)  # store json'd values in db, so we can unjson them when they are retrieved
+
+        print('RowHandler._ConvertToDBSafe() return', value, ', type=', type(value))
         return value
-    else:
-        if isinstance(value, BaseTable):
-            # if there is a reference to a BaseTable object stored in a value of another BaseTable object
-            # only store the id to prevent circular reference
-            value = {'id': value['id']}
-        return json.dumps(value)
 
+    def Set(self, key, value):
+        print("BaseTable.Set(", key, value)
 
-def _GetUpsertDict(d):
-    print('_GetUpsertDict(', d)
-    tempDict = dict(d)
-    for key, value in tempDict.copy().items():
-        if not isinstance(value, int):
-            tempDict[key] = JSON_Dumps(value)
-    print('_GetUpsertDict return', tempDict)
-    return tempDict
+        if not isinstance(key, str):
+            raise TypeError(f'key "{key}" should be of type str')
+        elif isinstance(value, bytes):
+            raise TypeError('use bytes.decode() to decode bytes before calling Set()')
 
+        if 'id' in self._data:
+            doInsert = False
+        else:
+            doInsert = True
 
-class BaseTable(dict):
-    # calls the self._upsert anytime an item changes
-    __slots__ = [
-        "_storeAsJson",  # { key: bool(shouldUseJson), }
-    ]
+        value = self._ConvertToDBSafe(key, value)
+        self._data[key] = value
 
-    def __init__(self, *args, **kwargs):
-        print('BaseTable.__init__(args=', args, ', kwargs=', kwargs)
-        self._storeAsJson = {}
-        super().__init__(self, *args, **kwargs)
+        if 'id' in self._data:
+            self._doUpsert()
+        elif doInsert:
+            self._doInsert()
 
-    def _wrapSetter(method):
-        def setter_wrapper(self, *args, **kwargs):
-            print('setter_wrapper: method=', method, ', a=', args, ', k=', kwargs)
-            if 'id' in self:
-                doInsert = False
-            else:
-                doInsert = True
+    def Get(self, key):
+        print("BaseTable.Get(", key)
+        value = self._data[key]
+        if key in self._jsonKeys:
+            value = json.loads(value)
 
-            result = method(self, *args, **kwargs)
+        return value
 
-            if 'id' in self:
-                self._doUpsert()
-            elif doInsert:
-                self._doInsert()
+    def Items(self):
+        for key in self._data:
+            yield key, self.Get(key)
 
-            return result
-
-        return setter_wrapper
-
-    __delitem__ = _wrapSetter(dict.__delitem__)
-    __setitem__ = _wrapSetter(dict.__setitem__)
-    clear = _wrapSetter(dict.clear)
-    pop = _wrapSetter(dict.pop)
-    popitem = _wrapSetter(dict.popitem)
-    setdefault = _wrapSetter(dict.setdefault)
-    update = _wrapSetter(dict.update)
-
-    def _wrapGetter(method):
-        def getter_wrapper(self, *args, **kwargs):
-            print('getter_wrapper: method=', method, ', a=', args, ', k=', kwargs)
-            result = method(self, *args, **kwargs)
-            if not isinstance(result, int):
-                try:
-                    result = json.loads(result)
-                except:
-                    pass
-            return result
-
-        return getter_wrapper
-
-    pop = _wrapGetter(pop)
-    popitem = _wrapGetter(popitem)
-    get = _wrapGetter(dict.get)
-    __getitem__ = _wrapGetter(dict.__getitem__)
-
-    def items(self):
-        print('BaseTable.items')
-        for k, v in super().items():
-            print('k=', k, ', v=', v, ', type(v)=', type(v))
-            if not isinstance(v, int):
-                try:
-                    v = json.loads(v)
-                except:
-                    pass
-            yield k, v
+    def Update(self, dict):
+        for k, v in dict.items():
+            self.Set(k, v)
 
     def _doUpsert(self):
         print('_doUpsert(self=', self)
         tableName = type(self).__name__
         _DB.begin()
-        _DB[tableName].upsert(_GetUpsertDict(self), ['id'])  # find row with matching 'id' and update it
+
+        d = self._data.copy()
+        d['_jsonKeys'] = json.dumps(list(self._jsonKeys))
+        print('116 doUpsert d=', d)
+        _DB[tableName].upsert(d, ['id'])  # find row with matching 'id' and update it
+
         _DB.commit()
 
     def _doInsert(self):
         print('_doInsert(self=', self)
         tableName = type(self).__name__
         _DB.begin()
-        ID = _DB[tableName].insert(_GetUpsertDict(self))
+
+        d = self._data.copy()
+        d['_jsonKeys'] = json.dumps(list(self._jsonKeys))
+        ID = _DB[tableName].insert(d)
         _DB.commit()
-        self['id'] = ID
+        self._data['id'] = ID
 
     def __str__(self):
         '''
@@ -142,9 +135,13 @@ class BaseTable(dict):
         :return: string like '<BaseDictabaseTable: email=me@website.com, name=John>'
         '''
         itemsList = []
-        for k, v, in self.items():
+        for k, v, in self.Items():
+            if k.startswith('_'):
+                if DEBUG is False:
+                    continue  # dont print these
+
             if isinstance(v, str) and len(v) > 25:
-                v = v[:25]
+                v = v[:25] + '...'
             itemsList.append(('{}={}(type={})'.format(k, v, type(v).__name__)))
 
         return '<{}: {}>'.format(
@@ -155,23 +152,32 @@ class BaseTable(dict):
     def __repr__(self):
         return str(self)
 
-
-def New(cls, **kwargs):
-    '''
-    Creates a new row in the table(cls)
-    Returns the new dict-like object
-
-    cls should inherit from BaseTable
-    '''
-    print('New(cls=', cls, ', kwargs=', kwargs)
-
-    newObj = cls(**kwargs)
-    print('159 New( newObj=', newObj)
-    newObj.update()
-    return newObj
+    def __iter__(self):
+        for k in self._data:
+            yield k
 
 
-def FindOne(cls, **k):
+class BaseTable(RowHandler):
+    def __setitem__(self, key, value):
+        return super().Set(key, value)
+
+    def __getitem__(self, key):
+        return super().Get(key)
+
+    def update(self, iterable):
+        return super().Update(**iterable)
+
+    def items(self):
+        return super().Items()
+
+    def get(self, key, default=None):
+        if key in self._data:
+            return super().Get(key)
+        else:
+            return default
+
+
+def FindOneRow(cls, **k):
     # _DB.begin() # dont do this
     print('FindOne(cls=', cls, ', k=', k)
     dbName = cls.__name__
@@ -187,7 +193,11 @@ def FindOne(cls, **k):
         return None
 
 
-def FindAll(cls, **k):
+def FindOne(cls, **k):
+    return FindOneRow(cls, **k)
+
+
+def FindAllRows(cls, **k):
     # special kwargs
     reverse = k.pop('_reverse', False)  # bool
     orderBy = k.pop('_orderBy', None)  # str
@@ -208,8 +218,13 @@ def FindAll(cls, **k):
             ret = _DB[dbName].find(**k)
 
     # yield type-cast items one by one
-    for item in ret:
-        yield cls(item)
+    for d in ret:
+        obj = cls(**d)
+        yield obj
+
+
+def FindAll(cls, **kwargs):
+    return FindAllRows(cls, **kwargs)
 
 
 def Drop(cls, confirm=False):
@@ -233,12 +248,34 @@ def Drop(cls, confirm=False):
 
 
 def Delete(obj):
+    print('Delete(', obj)
     _DB.begin()
     dbName = type(obj).__name__
-    _DB[dbName].delete(**obj)
+    _DB[dbName].delete(**dict(obj.Items()))
     _DB.commit()
 
 
+def NewRow(cls, **kwargs):
+    '''
+    Creates a new row in the table(cls)
+    Returns the new dict-like object
+
+    cls should inherit from BaseTable
+    '''
+    print('New(cls=', cls, ', kwargs=', kwargs)
+
+    newObj = cls(**kwargs)
+    for k, v in kwargs.items():
+        newObj.Set(k, v)
+
+    return newObj
+
+
+def New(cls, **kwargs):
+    return NewRow(cls, **kwargs)
+
+
+#################################################################
 if __name__ == '__main__':
     import time
     import random
@@ -256,7 +293,7 @@ if __name__ == '__main__':
         Drop(A, confirm=True)
 
         for i in range(10):
-            New(A, time=time.asctime(), count=i)
+            New(A, timeString=time.asctime(), count=i)
 
         oldPrint('FindAll(A)=', list(FindAll(A)))
         oldPrint('FindOne(A, count=5)=', FindOne(A, count=5))
@@ -355,9 +392,9 @@ if __name__ == '__main__':
         Drop(Book, confirm=True)
         Drop(Page, confirm=True)
 
-        book = Book(title='Title')
-        page1 = Page(words='Words1')
-        page2 = Page(words='Words2')
+        book = New(Book, title='Title')
+        page1 = New(Page, words='Words1')
+        page2 = New(Page, words='Words2')
 
         oldPrint('77 book=', book)
         oldPrint('78 page1=', page1)
@@ -377,8 +414,10 @@ if __name__ == '__main__':
             pass
 
         Drop(TestListTable, confirm=True)
+
         item = New(TestListTable)
         item['list'] = [1, 2, 3]
+        print(411, 'item=', item)
 
         findItem = FindOne(TestListTable)
         oldPrint('findItem=', findItem)
@@ -544,14 +583,33 @@ if __name__ == '__main__':
             raise TypeError('"stringOne" should be str')
 
 
+    def TestRowHandlerFunctions():
+        class TestRowHandler(RowHandler):
+            pass
+
+        obj = NewRow(TestRowHandler)
+        obj.Set('string', 'myValue')
+        obj.Set('integer', 1)
+        obj.Set('bytes', b'\x00\x012345'.decode())
+        obj.Set('list', [i for i in range(5)])
+        print('213 obj=', obj)
+
+        foundObj = FindOneRow(TestRowHandler, id=obj.Get('id'))
+        print('216 foundObj=', foundObj)
+
+        fondRows = FindAllRows(TestRowHandler)
+        print('234 fondRows=', list(fondRows))
+
+
     #################
-    # TestA()
-    # TestBytes()
-    # TestTypes()
-    # TestList()
-    # TestNew()
-    # TestDict()
-    # TestNone()
-    # TestJsonableInNew()
-    # TestClassWithInitParms()
+    TestRowHandlerFunctions()
+    TestA()
+    TestBytes()
+    TestTypes()
+    TestList()
+    TestNew()
+    TestDict()
+    TestNone()
+    TestJsonableInNew()
+    TestClassWithInitParms()
     TestIntegers()
