@@ -16,7 +16,7 @@ Create a new table
 ::
 
     # Create a table representing users
-    from dictabase import BaseDictabaseTable
+    from dictabase import BaseTable
     class UserClass(BaseTable):
         pass
 
