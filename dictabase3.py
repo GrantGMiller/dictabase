@@ -60,7 +60,7 @@ class BaseTable(dict):
             itemsList.append(('{}={}(type={})'.format(k, v, type(v).__name__)))
 
         if DEBUG:
-            itemsList.append(('{}={}'.format('id', id(self))))
+            itemsList.append(('{}={}'.format('pyid', id(self))))
 
         return '<{}: {}>'.format(
             type(self).__name__,
@@ -72,6 +72,7 @@ class BaseTable(dict):
 
 
 def New(cls, **kwargs):
+    print('New(', cls, kwargs)
     for k, v in kwargs.items():
         if isinstance(v, bytes):
             raise TypeError('Don\'t use type "bytes". Use b"data".encode')
@@ -90,6 +91,7 @@ def New(cls, **kwargs):
 
 
 def Drop(cls, confirm=False):
+    _DBManager.CommitAll()
     if confirm:
         _DBManager.Drop(cls)
     else:
@@ -97,6 +99,7 @@ def Drop(cls, confirm=False):
 
 
 def Delete(obj):
+    _DBManager.CommitAll()
     _DBManager.Delete(obj)
 
 
@@ -158,9 +161,15 @@ def _LoadKeys(obj):
 
 
 def _DumpKeys(obj):
-    for k, v in obj.copy().items():
-        obj[k] = obj.DumpKey(k, v)
-    return obj
+    baseTableObj = obj
+    dictObj = baseTableObj.copy()
+    for k, v in baseTableObj.items():
+        dictObj[k] = baseTableObj.DumpKey(k, v)
+    return dictObj
+
+
+def CommitAll():
+    _DBManager.CommitAll()
 
 
 class _DatabaseManager:
@@ -181,6 +190,7 @@ class _DatabaseManager:
             print('    ', obj)
 
     def AddToInUseQ(self, obj):
+        print('AddToInUseQ{', obj)
         self._inUseQ.append(obj)
         self._PrintQs()
 
@@ -190,9 +200,11 @@ class _DatabaseManager:
         self.WaitForProcessingToStop()
 
     def MoveToCommitQ(self, obj):
+        print('MoveToCommitQ(', obj)
         for inUseObj in self._inUseQ.copy():
-            if obj['id'] == inUseObj['id'] and type(obj) == type(inUseObj):
-                self._inUseQ.remove(inUseObj)
+            if obj['id'] == inUseObj['id']:
+                if type(obj) == type(inUseObj):
+                    self._inUseQ.remove(inUseObj)
 
         self._commitQ.append(obj)
         self._PrintQs()
@@ -205,13 +217,15 @@ class _DatabaseManager:
 
     def Insert(self, obj):
         print('Insert(', obj)
+        tableName = type(obj).__name__
+
         obj = _DumpKeys(obj)
         print('Insert obj after DumpKeys=', obj)
+
         self.SetProcess(False)
 
         self.WaitForProcessingToStop()
 
-        tableName = type(obj).__name__
         _DB.begin()
 
         d = dict(obj)
@@ -252,6 +266,7 @@ class _DatabaseManager:
         self._processing = True
         while self._commitQ and self._shouldProcess:
             obj = self._commitQ[0]
+            print('_ProcessOneFromQueue(', obj)
 
             self._Upsert(obj)
             self._commitQ.pop(0)

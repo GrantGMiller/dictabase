@@ -1,4 +1,5 @@
 import json
+import datetime
 
 if __name__ == '__main__':
     import time
@@ -11,6 +12,7 @@ if __name__ == '__main__':
         Drop,
         FindAll,
         FindOne,
+        CommitAll,
     )
 
     RegisterDBURI(
@@ -110,7 +112,7 @@ if __name__ == '__main__':
         print("findLarge['data'] == baseTableObj is", findLarge['data'].encode() == d)
 
 
-    def TestTypes():
+    def TestTypesPersonAnimal():
 
         class Person(BaseTable):
             # Each subclass of BaseTable produces another table in the db
@@ -127,17 +129,19 @@ if __name__ == '__main__':
         # Create tables with random data
         for i in range(10):
             # Instantiating a new Person newObj adds a new row in the db
-            newPerson = New(Person,
-                            name='Name{}'.format(i),
-                            age=random.randint(1, 100),
-                            )
+            newPerson = New(
+                Person,
+                name='Name{}'.format(i),
+                age=30+i,
+            )
             print('newPerson=', newPerson)
 
-            newAnimal = New(Animal,
-                            kind=random.choice(['Cat', 'Dog']),
-                            name='Fluffy{}'.format(i),
-                            age=random.randint(1, 10),
-                            )
+            newAnimal = New(
+                Animal,
+                kind=random.choice(['Cat', 'Dog']),
+                name='Fluffy{}'.format(i),
+                age=i,
+            )
             print('newAnimal=', newAnimal)
 
         # FindAll() returns all items from the database that match
@@ -145,45 +149,62 @@ if __name__ == '__main__':
         print('Number of animals of age 5: {}'.format(
             len(list(FindAll(Animal, age=5))))
         )
+        if len(list(FindAll(Animal, age=5))) != 1:
+            raise RuntimeError('Should be 1 and only 1 animal with age 5')
 
         # FindOne() returns an newObj found in the database
         person5 = FindOne(Person, name='Name5')
         print('Age of Person5=', person5['age'])
+        if person5['age'] != 35:
+            raise RuntimeError('person5 should be 35 years old')
 
-        # Remove any animals with age >= 5
+        # Remove any animals with age >= 35
         for animal in FindAll(Animal):
-            if animal['age'] >= 5:
+            if animal['age'] >= 35:
                 print('Removing animal=', animal)
                 Delete(animal)
 
         print('Remaining Animals=', FindAll(Animal))
 
+    def TestTypesBookPages():
         # Test Relational Mapping
 
         class Book(BaseTable):
             def LoadKey(self, key, dbValue):
+                print('Book.LoadKey(', key, dbValue)
                 return {
                     'pages': lambda v: [FindOne(Page, id=obj['id']) for obj in json.loads(v)],
                 }.get(key, lambda v: v)(dbValue)
 
             def DumpKey(self, key, objValue):
+                print('Book.DumpKey(', key, objValue, type(objValue))
                 return {
                     'pages': lambda listOfPages: json.dumps(
                         [dict(id=obj['id']) for obj in listOfPages],
-                        indent=2,
                         sort_keys=True
                     ),
                 }.get(key, lambda v: v)(objValue)
 
         class Page(BaseTable):
-            pass
+
+            def LoadKey(self, key, dbValue):
+                print('Book.LoadKey(', key, dbValue)
+                return {
+                    'book': lambda v: FindOne(Book, id=json.loads(v)['id'])
+                }.get(key, lambda v: v)(dbValue)
+
+            def DumpKey(self, key, objValue):
+                print('Book.DumpKey(', key, objValue, type(objValue))
+                return {
+                    'book': lambda bookObj: json.dumps(dict(id=bookObj['id']))
+                }.get(key, lambda v: v)(objValue)
 
         Drop(Book, confirm=True)
         Drop(Page, confirm=True)
 
-        book = New(Book, title='Title')
-        page1 = New(Page, words='Words1')
-        page2 = New(Page, words='Words2')
+        book = New(Book, title='MyTitle')
+        page1 = New(Page, words='TheWords1')
+        page2 = New(Page, words='TheWords2')
 
         print('77 book=', book)
         print('78 page1=', page1)
@@ -373,10 +394,12 @@ if __name__ == '__main__':
 
 
     #################
+    startTime = datetime.datetime.now()
     # TestSimple()
     # TestA()
     # TestBytes()
-    TestTypes()
+    # TestTypesPersonAnimal()
+    TestTypesBookPages()
     # TestList()
     # TestNew()
     # TestDict()
@@ -384,3 +407,8 @@ if __name__ == '__main__':
     # TestJsonableInNew()
     # TestClassWithInitParms()
     # TestIntegers()
+
+    #####################
+    CommitAll()
+    endTime = datetime.datetime.now()
+    print('Test took', endTime - startTime)
