@@ -27,19 +27,21 @@ if __name__ == '__main__':
 
         Drop(Simple, confirm=True)
 
-        s = New(Simple, i=random.randint(0, 100))
+        s = New(Simple, i=3888)
         print('s=', s)
         s['i'] = 99999
         print('s=', s)
         print('s reference gone')
-        for obj in FindAll(Simple):
-            print('obj=', obj)
-            if obj['i'] != 99999:
-                raise Exception('obj["i"] should = 99999')
 
         obj = FindOne(Simple)
         if obj is None or obj['i'] != 99999:
             raise Exception('should == 99999')
+
+        for obj in FindAll(Simple):
+            print('obj=', obj)
+            if obj['i'] != 99999:
+                raise Exception('obj["i"] should = 99999, got', obj['i'])
+
 
 
     def TestA():
@@ -395,11 +397,13 @@ if __name__ == '__main__':
 
     #################
     startTime = datetime.datetime.now()
-    # TestSimple()
+    ##########
+
+    TestSimple()
     # TestA()
     # TestBytes()
     # TestTypesPersonAnimal()
-    TestTypesBookPages()
+    # TestTypesBookPages()
     # TestList()
     # TestNew()
     # TestDict()

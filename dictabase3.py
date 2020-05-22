@@ -105,9 +105,10 @@ def Delete(obj):
 
 def FindOne(cls, **kwargs):
     # _DB.begin() # dont do this
-    _DBManager.CommitAll()
-    dbName = cls.__name__
-    tbl = _DB[dbName]
+    CommitAll()
+
+    tableName = cls.__name__
+    tbl = _DB[tableName]
     ret = tbl.find_one(**kwargs)
 
     if ret:
@@ -119,8 +120,8 @@ def FindOne(cls, **kwargs):
 
 
 def FindAll(cls, **kwargs):
-    _DBManager.CommitAll()
-    _DBManager.SetProcess(False)
+    CommitAll()
+
     ret = []
 
     # special kwargs
@@ -133,21 +134,21 @@ def FindAll(cls, **kwargs):
             orderBy = '-id'
 
     # do look up
-    dbName = cls.__name__
+    tableName = cls.__name__
     if len(kwargs) == 0:
-        ret += _DB[dbName].all(order_by=[f'{orderBy}'])
+        ret += _DB[tableName].all(order_by=[f'{orderBy}'])
     else:
         if orderBy is not None:
-            ret += _DB[dbName].find(
+            ret += _DB[tableName].find(
                 order_by=['{}'.format(orderBy)],
                 **kwargs
             )
         else:
-            ret += _DB[dbName].find(**kwargs)
+            ret += _DB[tableName].find(**kwargs)
 
     # yield type-cast items one by one
-    _DBManager.SetProcess(True)
-
+    # _DBManager.SetProcess(True)
+    print('FindAll(', cls, kwargs, '; ret=', list(ret))
     for d in ret:
         obj = cls(**d)
         obj = _LoadKeys(obj)
@@ -180,12 +181,10 @@ class _DatabaseManager:
         self._shouldProcess = True
 
     def _PrintQs(self):
-        if self._inUseQ:
-            print('self._inUseQ=')
+        print('self._inUseQ=')
         for obj in self._inUseQ:
             print('    ', obj)
-        if self._commitQ:
-            print('self._commitQ=')
+        print('self._commitQ=')
         for obj in self._commitQ:
             print('    ', obj)
 
@@ -195,9 +194,13 @@ class _DatabaseManager:
         self._PrintQs()
 
     def CommitAll(self):
+        print('CommitAll()')
+        self._PrintQs()
         while self._inUseQ:
             self.MoveToCommitQ(self._inUseQ.pop(0))
         self.WaitForProcessingToStop()
+        self._PrintQs()
+        print('CommitAll() end')
 
     def MoveToCommitQ(self, obj):
         print('MoveToCommitQ(', obj)
@@ -211,13 +214,9 @@ class _DatabaseManager:
         if self._shouldProcess:
             self.SetProcess(True)
 
-    def WaitForProcessingToStop(self):
-        while self._processing:
-            pass  # wait for the processing to stop
-
     def Insert(self, obj):
         print('Insert(', obj)
-        tableName = type(obj).__name__
+
 
         obj = _DumpKeys(obj)
         print('Insert obj after DumpKeys=', obj)
@@ -227,8 +226,9 @@ class _DatabaseManager:
         self.WaitForProcessingToStop()
 
         _DB.begin()
-
+        tableName = type(obj).__name__
         d = dict(obj)
+        print('_Insert d=', d, ', tableName=', tableName)
         ID = _DB[tableName].insert(d)
         _DB.commit()
 
@@ -262,6 +262,10 @@ class _DatabaseManager:
         if self._shouldProcess and not self._processing:
             self._ProcessOneFromQueue()
 
+    def WaitForProcessingToStop(self):
+        while self._processing:
+            pass  # wait for the processing to stop
+
     def _ProcessOneFromQueue(self):
         self._processing = True
         while self._commitQ and self._shouldProcess:
@@ -275,16 +279,19 @@ class _DatabaseManager:
 
     def _Upsert(self, obj):
         print('_Upsert(', obj)
+        tableName = type(obj).__name__ # do this before DumpKeys
+
         obj = _DumpKeys(obj)
         print('_Upsert obj after DumpKey=', obj)
 
-        tableName = type(obj).__name__
         _DB.begin()
 
         d = dict(obj)
+        print('_Insert d=', d, ', tableName=', tableName)
         _DB[tableName].upsert(d, ['id'])  # find row with matching 'id' and update it
 
         _DB.commit()
+        print('_Upsert end')
 
 
 _DBManager = _DatabaseManager()
