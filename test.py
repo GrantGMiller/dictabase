@@ -1,3 +1,5 @@
+import json
+
 if __name__ == '__main__':
     import time
     import random
@@ -25,13 +27,17 @@ if __name__ == '__main__':
 
         s = New(Simple, i=random.randint(0, 100))
         print('s=', s)
-        s['i'] = 'override'
+        s['i'] = 99999
         print('s=', s)
         print('s reference gone')
         for obj in FindAll(Simple):
             print('obj=', obj)
-            if obj['i'] != 'override':
-                raise Exception('obj["i"] should = "override"')
+            if obj['i'] != 99999:
+                raise Exception('obj["i"] should = 99999')
+
+        obj = FindOne(Simple)
+        if obj is None or obj['i'] != 99999:
+            raise Exception('should == 99999')
 
 
     def TestA():
@@ -86,9 +92,15 @@ if __name__ == '__main__':
         d = ('0' * 100).encode()
         try:
             large = New(B, data=d)
-
+            failed = False
         except Exception as e:
-            print(e)
+            # should fail
+            failed = True
+            print('96', e)
+
+        if not failed:
+            raise Exception('should have failed')
+
         large = New(B, data=d.decode())
         print("large['data'] == baseTableObj is", large['data'] == d)
 
@@ -149,7 +161,19 @@ if __name__ == '__main__':
         # Test Relational Mapping
 
         class Book(BaseTable):
-            pass
+            def LoadKey(self, key, dbValue):
+                return {
+                    'pages': lambda v: [FindOne(Page, id=obj['id']) for obj in json.loads(v)],
+                }.get(key, lambda v: v)(dbValue)
+
+            def DumpKey(self, key, objValue):
+                return {
+                    'pages': lambda listOfPages: json.dumps(
+                        [dict(id=obj['id']) for obj in listOfPages],
+                        indent=2,
+                        sort_keys=True
+                    ),
+                }.get(key, lambda v: v)(objValue)
 
         class Page(BaseTable):
             pass
@@ -349,10 +373,10 @@ if __name__ == '__main__':
 
 
     #################
-    TestSimple()
+    # TestSimple()
     # TestA()
     # TestBytes()
-    # TestTypes()
+    TestTypes()
     # TestList()
     # TestNew()
     # TestDict()

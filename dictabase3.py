@@ -22,6 +22,24 @@ def RegisterDBURI(dburi=None):
 
 
 class BaseTable(dict):
+    def LoadKey(self, key, dbValue):
+        # moving data from database to the BaseTable object
+        return dbValue
+
+        # use below template
+        # return {
+        #     'pages': lambda v: json.loads(v),
+        # }.get(key, lambda v: v)(dbValue)
+
+    def DumpKey(self, key, value):
+        # moving data from the BaseTable object to the database
+        return value
+
+        # use below as template
+        # return {
+        #     'pages': lambda v: json.dumps(v, indent=2, sort_keys=True),
+        # }.get(key, lambda v: v)(objValue)
+
     def __del__(self):
         print(f'{self}.__del__()')
         _DBManager.MoveToCommitQ(self)
@@ -54,6 +72,16 @@ class BaseTable(dict):
 
 
 def New(cls, **kwargs):
+    for k, v in kwargs.items():
+        if isinstance(v, bytes):
+            raise TypeError('Don\'t use type "bytes". Use b"data".encode')
+        elif isinstance(v, list) or isinstance(v, dict):
+            if not cls.LoadKey or not cls.DumpKey:
+                raise TypeError(
+                    'Type {} cannot be stored natively. Please override {}.LoadKey and {}.DumpKey to convert to a database-safe type. Think json.dumps() and json.loads()'.format(
+                        type(v)
+                    ))
+
     newObj = cls(**kwargs)
     newID = _DBManager.Insert(newObj)
     newObj['id'] = newID
@@ -74,12 +102,14 @@ def Delete(obj):
 
 def FindOne(cls, **kwargs):
     # _DB.begin() # dont do this
+    _DBManager.CommitAll()
     dbName = cls.__name__
     tbl = _DB[dbName]
     ret = tbl.find_one(**kwargs)
 
     if ret:
         ret = cls(**ret)
+        ret = _LoadKeys(ret)
         return ret
     else:
         return None
@@ -117,7 +147,20 @@ def FindAll(cls, **kwargs):
 
     for d in ret:
         obj = cls(**d)
+        obj = _LoadKeys(obj)
         yield obj
+
+
+def _LoadKeys(obj):
+    for k, v in obj.copy().items():
+        obj[k] = obj.LoadKey(k, v)
+    return obj
+
+
+def _DumpKeys(obj):
+    for k, v in obj.copy().items():
+        obj[k] = obj.DumpKey(k, v)
+    return obj
 
 
 class _DatabaseManager:
@@ -160,20 +203,10 @@ class _DatabaseManager:
         while self._processing:
             pass  # wait for the processing to stop
 
-    # def FindAll(self, cls, **kwargs):
-    #     # returns any objs in the q (they have yet to be committed to the db
-    #     print('DBM.FindAll(', cls, kwargs)
-    #     self._PrintQs()
-    #     ret = []
-    #     for obj in self._inUseQ + self._commitQ:
-    #         if isinstance(obj, cls):
-    #             if all(item in obj.items() for item in obj.items()):
-    #                 ret.append(obj)
-    #
-    #     print('DBM.FindAll(', cls, kwargs, '; ret=', ret)
-    #     return ret
-
     def Insert(self, obj):
+        print('Insert(', obj)
+        obj = _DumpKeys(obj)
+        print('Insert obj after DumpKeys=', obj)
         self.SetProcess(False)
 
         self.WaitForProcessingToStop()
@@ -194,7 +227,7 @@ class _DatabaseManager:
 
         _DB.begin()
         dbName = type(obj).__name__
-        _DB[dbName].delete(**dict(obj.Items()))
+        _DB[dbName].delete(**obj)
         _DB.commit()
 
         self.SetProcess(True)
@@ -218,13 +251,18 @@ class _DatabaseManager:
     def _ProcessOneFromQueue(self):
         self._processing = True
         while self._commitQ and self._shouldProcess:
-            self._Upsert(self._commitQ[0])
+            obj = self._commitQ[0]
+
+            self._Upsert(obj)
             self._commitQ.pop(0)
 
         self._processing = False
 
     def _Upsert(self, obj):
         print('_Upsert(', obj)
+        obj = _DumpKeys(obj)
+        print('_Upsert obj after DumpKey=', obj)
+
         tableName = type(obj).__name__
         _DB.begin()
 
