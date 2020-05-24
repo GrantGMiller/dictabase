@@ -42,7 +42,6 @@ if __name__ == '__main__':
                 raise Exception('obj["i"] should = 99999, got', obj['i'])
 
 
-
     def TestA():
         class A(BaseTable):
             pass
@@ -133,7 +132,7 @@ if __name__ == '__main__':
             newPerson = New(
                 Person,
                 name='Name{}'.format(i),
-                age=30+i,
+                age=30 + i,
             )
             print('newPerson=', newPerson)
 
@@ -166,6 +165,7 @@ if __name__ == '__main__':
                 Delete(animal)
 
         print('Remaining Animals=', FindAll(Animal))
+
 
     def TestChildWithComplexKeys():
         # Test Relational Mapping
@@ -248,7 +248,9 @@ if __name__ == '__main__':
                 print("CustomizedInitClass.__init__(", string, integer, a, k)
                 string = str(string)
                 integer = int(integer)
-                super().__init__(string=string, integer=integer)
+                super().__init__(*a, string=string, integer=integer, **k)
+
+        Drop(CustomizedInitClass, confirm=True)
 
         obj = New(CustomizedInitClass, string=12345, integer='98765')
         print('502 obj=', obj)
@@ -280,6 +282,29 @@ if __name__ == '__main__':
             raise TypeError('"stringOne" should be str')
 
 
+    def MultipleInstances():
+        class User(BaseTable):
+            pass
+
+        Drop(User, confirm=True)
+
+        New(User, name='username1', age='33')
+
+        userA = FindOne(User, name='username1')
+        print('userA=', userA)
+        userA['age'] = '99'
+        CommitAll()
+
+        userB = FindOne(User, name='username1')
+        print('userB=', userB)
+        userB['age'] = '00'
+
+        for user in FindAll(User):
+            print('user=', user)
+            if user['age'] != '00':
+                raise Exception('user["age"] shoudl be "00", but got', user['age'])
+
+
     #################
     startTime = datetime.datetime.now()
     ##########
@@ -293,6 +318,7 @@ if __name__ == '__main__':
     TestNone()
     TestClassWithInitParms()
     TestIntegers()
+    MultipleInstances()
 
     #####################
     CommitAll()

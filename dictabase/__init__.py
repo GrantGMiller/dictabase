@@ -1,10 +1,14 @@
 import gc
 import time
 import copy
+from collections import defaultdict
+
 import dataset
 import sys
 
-DEBUG = True
+DEBUG = False
+if DEBUG is False:
+    print = lambda *a, **k: None
 
 
 def RegisterDBURI(dburi=None):
@@ -107,6 +111,10 @@ def FindOne(cls, **kwargs):
     # _DB.begin() # dont do this
     CommitAll()
 
+    ret = _DBManager.FindOne(cls, **kwargs)
+    if ret:
+        return ret
+
     tableName = cls.__name__
     tbl = _DB[tableName]
     ret = tbl.find_one(**kwargs)
@@ -114,6 +122,7 @@ def FindOne(cls, **kwargs):
     if ret:
         ret = cls(**ret)
         ret = _LoadKeys(ret)
+        _DBManager.AddToInUseQ(ret)
         return ret
     else:
         return None
@@ -122,7 +131,7 @@ def FindOne(cls, **kwargs):
 def FindAll(cls, **kwargs):
     CommitAll()
 
-    ret = []
+    ret = _DBManager.FindAll(cls, **kwargs)
 
     # special kwargs
     reverse = kwargs.pop('_reverse', False)  # bool
@@ -135,6 +144,7 @@ def FindAll(cls, **kwargs):
 
     # do look up
     tableName = cls.__name__
+
     if len(kwargs) == 0:
         ret += _DB[tableName].all(order_by=[f'{orderBy}'])
     else:
@@ -152,6 +162,7 @@ def FindAll(cls, **kwargs):
     for d in ret:
         obj = cls(**d)
         obj = _LoadKeys(obj)
+        _DBManager.AddToInUseQ(obj)
         yield obj
 
 
@@ -175,44 +186,80 @@ def CommitAll():
 
 class _DatabaseManager:
     def __init__(self):
-        self._inUseQ = []
-        self._commitQ = []  # newest items on the right
+        self._inUseQ = defaultdict(dict)  # {
+        # type(): {
+        # int(ID): BaseTable(obj) # or child
+        # }
+        self._commitQ = defaultdict(dict)  # newest items on the right
         self._processing = False
         self._shouldProcess = True
 
     def _PrintQs(self):
         print('self._inUseQ=')
-        for obj in self._inUseQ:
-            print('    ', obj)
+        for theType in self._inUseQ:
+            for obj in self._inUseQ[theType].values():
+                print('    ', obj)
+
         print('self._commitQ=')
-        for obj in self._commitQ:
-            print('    ', obj)
+        for theType in self._commitQ:
+            for obj in self._commitQ[theType].values():
+                print('    ', obj)
 
     def AddToInUseQ(self, obj):
         print('AddToInUseQ{', obj)
-        self._inUseQ.append(obj)
+        self._inUseQ[type(obj)][obj['id']] = obj
         self._PrintQs()
 
     def CommitAll(self):
         print('CommitAll()')
         self._PrintQs()
-        while self._inUseQ:
-            self.MoveToCommitQ(self._inUseQ.pop(0))
+
+        for theType in self._inUseQ:
+            for obj in self._inUseQ[theType].copy().values():
+                self.MoveToCommitQ(obj)
+
         self.WaitForProcessingToStop()
         self._PrintQs()
         print('CommitAll() end')
 
     def MoveToCommitQ(self, obj):
         print('MoveToCommitQ(', obj)
-        for inUseObj in self._inUseQ.copy():
-            if obj['id'] == inUseObj['id']:
-                if type(obj) == type(inUseObj):
-                    self._inUseQ.remove(inUseObj)
+        self._PrintQs()
 
-        self._commitQ.append(obj)
+        self._inUseQ[type(obj)].pop(obj['id'], None)
+
+        self._commitQ[type(obj)][obj['id']] = obj
+
         self._PrintQs()
         if self._shouldProcess:
             self.SetProcess(True)
+
+    def FindOne(self, cls, **kwargs):
+        for obj in self._inUseQ[cls].values():
+            if IsSubset(subDict=kwargs, superDict=obj):
+                print('DBM.FindOne(', cls, kwargs, '; ret=', obj)
+                return obj
+
+        for obj in self._commitQ[cls].values():
+            if IsSubset(subDict=kwargs, superDict=obj):
+                print('DBM.FindOne(', cls, kwargs, '; ret=', obj)
+                return obj
+
+        print('DBM.FindOne(', cls, kwargs, '; ret=', None)
+
+    def FindAll(self, cls, **kwargs):
+        ret = set()
+
+        for obj in self._inUseQ[cls].values():
+            if IsSubset(subDict=kwargs, superDict=obj):
+                ret.append(obj)
+
+        for obj in self._commitQ[cls].values():
+            if IsSubset(subDict=kwargs, superDict=obj):
+                ret.append(obj)
+
+        print('DBM.FindAll(', cls, kwargs, '; ret=', ret)
+        return list(ret)
 
     def Insert(self, obj):
         print('Insert(', obj)
@@ -267,12 +314,18 @@ class _DatabaseManager:
 
     def _ProcessOneFromQueue(self):
         self._processing = True
-        while self._commitQ and self._shouldProcess:
-            obj = self._commitQ[0]
-            print('_ProcessOneFromQueue(', obj)
 
-            self._Upsert(obj)
-            self._commitQ.pop(0)
+        for theType in self._commitQ:
+            if not self._shouldProcess:
+                break
+            for obj in self._commitQ[theType].copy().values():
+                if not self._shouldProcess:
+                    break
+
+                print('_ProcessOneFromQueue(', obj)
+
+                self._Upsert(obj)
+                self._commitQ[theType].pop(obj['id'], None)
 
         self._processing = False
 
@@ -294,3 +347,7 @@ class _DatabaseManager:
 
 
 _DBManager = _DatabaseManager()
+
+
+def IsSubset(subDict, superDict):
+    return all(item in superDict.items() for item in subDict.items())
