@@ -77,6 +77,7 @@ class BaseTable(dict):
 
 
 def New(cls, **kwargs):
+    inserting = True
     print('New(', cls, kwargs)
     CommitAll()
     print('New(', cls, kwargs)
@@ -92,13 +93,10 @@ def New(cls, **kwargs):
                         type(v),
                     ))
 
-
     newObj = cls(**kwargs)
     newID = _DBManager.Insert(newObj)
     newObj['id'] = newID
     _DBManager.AddToInUseQ(newObj)
-    _DBManager.WaitForProcessingToStop()
-
     return newObj
 
 
@@ -128,7 +126,7 @@ def FindOne(cls, **kwargs):
     tableName = cls.__name__
     tbl = _DB[tableName]
     ret = tbl.find_one(**kwargs)
-
+    print('tbl.find_one(', kwargs, '; ret=', ret)
     if ret:
         ret = cls(**ret)
         ret = _LoadKeys(ret)
@@ -215,7 +213,7 @@ class _DatabaseManager:
 
         print('self._commitQ=')
         for theType in self._commitQ:
-            for obj in self._commitQ[theType].values():
+            for obj in self._commitQ[theType].copy().values():
                 print('    ', obj)
 
         print('self._deleteQ=')
@@ -267,7 +265,7 @@ class _DatabaseManager:
                 print('DBM.FindOne(', cls, kwargs, '; ret=', obj)
                 return obj
 
-        print('DBM.FindOne(', cls, kwargs, '; ret=', None)
+        print('DBM.FindOne(', cls, kwargs, '; ret=None')
 
     def FindAll(self, cls, **kwargs):
         ret = set()

@@ -311,24 +311,32 @@ def test_MultipleSimultaneousInstances():
         assert user['age'] == '00'
 
 
-# def test_Threading():
-#     from threading import Timer
-#
-#     class Shape(BaseTable):
-#         pass
-#
-#     Drop(Shape, confirm=True)
-#
-#     def Function(name):
-#         print(f'Function({name})')
-#
-#         New(Shape, name=name)
-#
-#     LENGTH = 3
-#     for i in range(LENGTH):
-#         Timer(0, Function, (f'name{i}',)).start()
-#
-#     allShapes = list(FindAll(Shape))
-#     print('allShapes=', allShapes)
-#
-#     assert len(allShapes) == LENGTH
+def test_Threading():
+    from threading import Timer
+
+    class Shape(BaseTable):
+        pass
+
+    Drop(Shape, confirm=True)
+
+    def Function(name):
+        print(f'Function({name})')
+
+        New(Shape, name=name)
+
+    LENGTH = 3
+    for i in range(LENGTH):
+        Timer(0, Function, (f'name{i}',)).start()
+
+    count = 0
+    while count < 10:
+        # give the threads time to finish, but if they take too long, assume it falied
+        allShapes = list(FindAll(Shape))
+        print('allShapes=', allShapes)
+        if len(allShapes) < LENGTH:
+            count += 1
+            time.sleep(1)
+        else:
+            break
+
+    assert len(allShapes) == LENGTH
