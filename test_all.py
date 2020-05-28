@@ -12,9 +12,7 @@ from dictabase import (
     CommitAll,
 )
 
-RegisterDBURI(
-    'postgres://xfgkxpzruxledr:5b83aece4fbad7827cb1d9df48bf5b9c9ad2b33538662308a9ef1d8701bfda4b@ec2-35-174-88-65.compute-1.amazonaws.com:5432/d8832su8tgbh82'
-)
+RegisterDBURI()
 
 
 def test_Simple():
