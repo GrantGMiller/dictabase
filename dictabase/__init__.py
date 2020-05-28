@@ -7,7 +7,7 @@ import dataset
 import sys
 import sys
 
-DEBUG = True
+DEBUG = False
 if DEBUG is False or sys.platform.startswith('linux'):
     print = lambda *a, **k: None
 
@@ -268,7 +268,7 @@ class _DatabaseManager:
         print('DBM.FindOne(', cls, kwargs, '; ret=None')
 
     def FindAll(self, cls, **kwargs):
-        ret = set()
+        ret = []
 
         for obj in self._inUseQ[cls].values():
             if IsSubset(subDict=kwargs, superDict=obj):
@@ -279,7 +279,7 @@ class _DatabaseManager:
                 ret.append(obj)
 
         print('DBM.FindAll(', cls, kwargs, '; ret=', ret)
-        return list(ret)
+        return ret
 
     def Insert(self, obj):
         print('DBM.Insert(', obj)

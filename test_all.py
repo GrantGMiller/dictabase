@@ -12,7 +12,9 @@ from dictabase import (
     CommitAll,
 )
 
-RegisterDBURI()
+RegisterDBURI(
+    'postgres://xfgkxpzruxledr:5b83aece4fbad7827cb1d9df48bf5b9c9ad2b33538662308a9ef1d8701bfda4b@ec2-35-174-88-65.compute-1.amazonaws.com:5432/d8832su8tgbh82'
+)
 
 
 def test_Simple():
@@ -163,13 +165,13 @@ def test_ChildWithComplexKeys():
 
     class Book(BaseTable):
         def LoadKey(self, key, dbValue):
-            print('Book.LoadKey(', key, dbValue)
+            # print('Book.LoadKey(', key, dbValue)
             return {
                 'pages': lambda v: [FindOne(Page, id=obj['id']) for obj in json.loads(v)],
             }.get(key, lambda v: v)(dbValue)
 
         def DumpKey(self, key, objValue):
-            print('Book.DumpKey(', key, objValue, type(objValue))
+            # print('Book.DumpKey(', key, objValue, type(objValue))
             return {
                 'pages': lambda listOfPages: json.dumps(
                     [dict(id=obj['id']) for obj in listOfPages],
@@ -180,13 +182,13 @@ def test_ChildWithComplexKeys():
     class Page(BaseTable):
 
         def LoadKey(self, key, dbValue):
-            print('Book.LoadKey(', key, dbValue)
+            # print('Page.LoadKey(', key, dbValue)
             return {
                 'book': lambda v: FindOne(Book, id=json.loads(v)['id'])
             }.get(key, lambda v: v)(dbValue)
 
         def DumpKey(self, key, objValue):
-            print('Book.DumpKey(', key, objValue, type(objValue))
+            # print('Page.DumpKey(', key, objValue, type(objValue))
             return {
                 'book': lambda bookObj: json.dumps(dict(id=bookObj['id']))
             }.get(key, lambda v: v)(objValue)
