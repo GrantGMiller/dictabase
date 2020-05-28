@@ -5,9 +5,10 @@ from collections import defaultdict
 
 import dataset
 import sys
+import sys
 
-DEBUG = False
-if DEBUG is False:
+DEBUG = True
+if DEBUG is False or sys.platform.startswith('linux'):
     print = lambda *a, **k: None
 
 
@@ -77,20 +78,27 @@ class BaseTable(dict):
 
 def New(cls, **kwargs):
     print('New(', cls, kwargs)
+    CommitAll()
+    print('New(', cls, kwargs)
     for k, v in kwargs.items():
         if isinstance(v, bytes):
-            raise TypeError('Don\'t use type "bytes". Use b"data".encode')
+            raise TypeError('Don\'t use type "bytes". Use b"data".encode()')
         elif isinstance(v, list) or isinstance(v, dict):
             if not cls.LoadKey or not cls.DumpKey:
                 raise TypeError(
                     'Type {} cannot be stored natively. Please override {}.LoadKey and {}.DumpKey to convert to a database-safe type. Think json.dumps() and json.loads()'.format(
-                        type(v)
+                        type(v),
+                        type(v),
+                        type(v),
                     ))
+
 
     newObj = cls(**kwargs)
     newID = _DBManager.Insert(newObj)
     newObj['id'] = newID
     _DBManager.AddToInUseQ(newObj)
+    _DBManager.WaitForProcessingToStop()
+
     return newObj
 
 
@@ -103,8 +111,10 @@ def Drop(cls, confirm=False):
 
 
 def Delete(obj):
+    print('Delete(', obj)
     _DBManager.CommitAll()
-    _DBManager.Delete(obj)
+    _DBManager.MoveToDeleteQ(obj)
+    _DBManager.WaitForProcessingToStop()
 
 
 def FindOne(cls, **kwargs):
@@ -190,9 +200,12 @@ class _DatabaseManager:
         # type(): {
         # int(ID): BaseTable(obj) # or child
         # }
-        self._commitQ = defaultdict(dict)  # newest items on the right
+        self._commitQ = defaultdict(dict)
+        self._deleteQ = defaultdict(dict)
+        self._alreadyDeletedQ = defaultdict(dict)
         self._processing = False
         self._shouldProcess = True
+        self.inserting = False
 
     def _PrintQs(self):
         print('self._inUseQ=')
@@ -203,6 +216,11 @@ class _DatabaseManager:
         print('self._commitQ=')
         for theType in self._commitQ:
             for obj in self._commitQ[theType].values():
+                print('    ', obj)
+
+        print('self._deleteQ=')
+        for theType in self._deleteQ:
+            for obj in self._deleteQ[theType].values():
                 print('    ', obj)
 
     def AddToInUseQ(self, obj):
@@ -228,11 +246,15 @@ class _DatabaseManager:
 
         self._inUseQ[type(obj)].pop(obj['id'], None)
 
+        alreadyDeletedObj = self._alreadyDeletedQ[type(obj)].pop(obj['id'], None)
+        if alreadyDeletedObj:
+            return  # dont commit this obj. its been deleted
+
         self._commitQ[type(obj)][obj['id']] = obj
 
         self._PrintQs()
         if self._shouldProcess:
-            self.SetProcess(True)
+            self.SetShouldProcess(True)
 
     def FindOne(self, cls, **kwargs):
         for obj in self._inUseQ[cls].values():
@@ -262,13 +284,13 @@ class _DatabaseManager:
         return list(ret)
 
     def Insert(self, obj):
-        print('Insert(', obj)
+        print('DBM.Insert(', obj)
 
         tableName = type(obj).__name__  # do this before DumpKeys
         obj = _DumpKeys(obj)
         print('Insert obj after DumpKeys=', obj)
 
-        self.SetProcess(False)
+        self.SetShouldProcess(False)
 
         self.WaitForProcessingToStop()
 
@@ -278,22 +300,36 @@ class _DatabaseManager:
         ID = _DB[tableName].insert(d)
         _DB.commit()
 
-        self.SetProcess(True)
+        self.SetShouldProcess(True)
+        print('_Insert d=', d, '; return ID=', ID)
         return ID
 
+    def WaitForInsertToComplete(self):
+        print('WaitForInsertToComplete()')
+        while self.inserting:
+            pass
+        print('Inserting Complete')
+
+    def MoveToDeleteQ(self, obj):
+        print('MoveToDeleteQ(', obj)
+        self._deleteQ[type(obj)][obj['id']] = obj
+
+        self._PrintQs()
+        if self._shouldProcess:
+            self.SetShouldProcess(True)
+
     def Delete(self, obj):
-        self.SetProcess(False)
-        self.WaitForProcessingToStop()
+        print('DBM.Delete(', obj)
 
         _DB.begin()
         dbName = type(obj).__name__
         _DB[dbName].delete(**obj)
         _DB.commit()
 
-        self.SetProcess(True)
+        self._alreadyDeletedQ[type(obj)][obj['id']] = obj
 
     def Drop(self, cls):
-        self.SetProcess(False)
+        self.SetShouldProcess(False)
         self.WaitForProcessingToStop()
 
         _DB.begin()
@@ -301,19 +337,36 @@ class _DatabaseManager:
         _DB[tableName].drop()
         _DB.commit()
 
-        self.SetProcess(True)
+        self.SetShouldProcess(True)
 
-    def SetProcess(self, state):
+    def SetShouldProcess(self, state):
         self._shouldProcess = state
         if self._shouldProcess and not self._processing:
             self._ProcessOneFromQueue()
 
     def WaitForProcessingToStop(self):
+        print('DBM.WaitForProcessingToStop()')
         while self._processing:
             pass  # wait for the processing to stop
+        print('Processing Stopped')
 
     def _ProcessOneFromQueue(self):
+        print('DBM._ProcessOneFromQueue()')
         self._processing = True
+
+        for theType in self._deleteQ:
+            if not self._shouldProcess:
+                break
+            for obj in self._deleteQ[theType].copy().values():
+                if not self._shouldProcess:
+                    break
+
+                self._inUseQ[theType].pop(obj['id'], None)  # remove from inUseQ if exists
+                self._commitQ[theType].pop(obj['id'], None)  # remove from inUseQ if exists
+
+                print('_ProcessOneFromQueue.Delete(', obj)
+                self.Delete(obj)
+                self._deleteQ[theType].pop(obj['id'], None)
 
         for theType in self._commitQ:
             if not self._shouldProcess:
@@ -322,7 +375,7 @@ class _DatabaseManager:
                 if not self._shouldProcess:
                     break
 
-                print('_ProcessOneFromQueue(', obj)
+                print('_ProcessOneFromQueue.Upsert(', obj)
 
                 self._Upsert(obj)
                 self._commitQ[theType].pop(obj['id'], None)
