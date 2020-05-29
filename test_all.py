@@ -9,7 +9,6 @@ from dictabase import (
     Drop,
     FindAll,
     FindOne,
-    CommitAll,
 )
 
 RegisterDBURI()
@@ -40,6 +39,8 @@ def test_Simple():
         print('obj=', obj)
         assert obj['i'] == 99999
 
+    print('test_Simple() complete')
+
 
 def test_Delete():
     class SimpleTestClass(BaseTable):
@@ -58,10 +59,12 @@ def test_Delete():
 
     print('FindAll(SimpleTestClass)=')
     allObjs = list(FindAll(SimpleTestClass))
+    print('allObjs=', allObjs)
     assert len(allObjs) == LENGTH
 
     print('FindOne(SimpleTestClass, count=5)=')
     foundCount5 = list(FindAll(SimpleTestClass, count=5))
+    print('foundCount5=', foundCount5)
     assert len(foundCount5) == 1
 
     print('for obj in FindAll(SimpleTestClass)')
@@ -88,33 +91,6 @@ def test_Delete():
     for obj in allSimpleTestClass:
         print('allSimpleTestClass obj=', obj)
     assert len(allSimpleTestClass) == (LENGTH / 2)
-
-
-def test_Bytes():
-    # test bytes type
-    class BytesTestClass(BaseTable):
-        pass
-
-    Drop(BytesTestClass, confirm=True)
-
-    d = ('0' * 100).encode()
-    try:
-        large = New(BytesTestClass, data=d)
-        failed = False
-    except Exception as e:
-        # should fail
-        failed = True
-        print('96', e)
-
-    assert failed is True
-
-    large = New(BytesTestClass, data=d.decode())
-    print("large['data'] == baseTableObj is", large['data'] == d)
-
-    largeID = large['id']
-
-    findLarge = FindOne(BytesTestClass, id=largeID)
-    print("findLarge['data'] == baseTableObj is", findLarge['data'].encode() == d)
 
 
 def test_SimpleChild():
@@ -254,6 +230,8 @@ def test_ClassWithInitParams():
 def test_Integers():
     class IntegerTable(BaseTable):
         pass
+
+    Drop(IntegerTable, confirm=True)
 
     obj = New(IntegerTable, intOne=1, stringOne='1')
     print('525 obj=', obj)
