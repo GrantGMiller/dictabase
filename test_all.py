@@ -9,8 +9,10 @@ from dictabase import (
     Drop,
     FindAll,
     FindOne,
+    SetDebug
 )
 
+SetDebug(True)
 RegisterDBURI()
 
 
@@ -243,6 +245,66 @@ def test_Integers():
     assert isinstance(foundObj['intOne'], int)
 
 
+def test_OverlappingReferences():
+    class RefClass(BaseTable):
+        pass
+
+    Drop(RefClass, confirm=True)
+
+    obj = New(RefClass, name='Namie McNamerson')
+
+    ref1 = FindOne(RefClass)
+    ref1['name'] = 'ref1'
+
+    ref2 = FindOne(RefClass)
+    ref2['name'] = 'ref2'
+
+    ref3 = FindOne(RefClass)
+    ref3['name'] = 'ref3'
+
+    ref4 = list(FindAll(RefClass))[0]
+    ref4['name'] = 'ref4'
+
+    ref5 = list(FindAll(RefClass))[0]
+    ref5['name'] = 'ref5'
+
+    ref6 = list(FindAll(RefClass))[0]
+    ref6['name'] = 'ref6'
+
+    print('ref1=', ref1)
+    print('ref2=', ref2)
+    print('ref3=', ref3)
+    print('ref4=', ref4)
+    print('ref5=', ref5)
+    print('ref6=', ref6)
+
+    ref1['name'] = 'ref1a'
+    ref2['name'] = 'ref2a'
+    ref3['name'] = 'ref3a'
+    ref4['name'] = 'ref4a'
+    ref5['name'] = 'ref5a'
+    ref6['name'] = 'ref6a'
+
+    ref1['name'] = 'ref1b'
+    ref3['name'] = 'ref3b'
+    ref4['name'] = 'ref4b'
+    ref6['name'] = 'ref6b'
+    ref5['name'] = 'ref5b'
+    ref2['name'] = 'ref2b'
+
+    finalRef = FindOne(RefClass)
+    assert finalRef['name'] == 'ref2b'
+
+    # keep references
+
+    ref1['name'] = 'ref1c'
+    ref2['name'] = 'ref2c'
+    ref3['name'] = 'ref3c'
+    ref4['name'] = 'ref4c'
+    ref5['name'] = 'ref5c'
+    ref6['name'] = 'ref6c'
+
+
 def test_MultipleInstances():
     class User(BaseTable):
         pass
@@ -308,6 +370,7 @@ def test_Threading():
 
     count = 0
     while count < 10:
+        print('while count < 10; count=', count)
         # give the threads time to finish, but if they take too long, assume it falied
         allShapes = list(FindAll(Shape))
         print('allShapes=', allShapes)

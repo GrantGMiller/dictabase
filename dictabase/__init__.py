@@ -1,8 +1,11 @@
 import dictabase.base_table
 from dictabase.database_worker import DatabaseWorker
 import time
+from dictabase.base_table import BaseTable
+from dictabase.helpers import ExponentialDelay
 
-DEBUG = True
+DEBUG = False
+oldPrint = print
 
 _dbWorker = DatabaseWorker()
 _dbWorker.SetDebug(DEBUG)
@@ -11,79 +14,58 @@ dictabase.base_table.RegisterDbWorker(_dbWorker)
 dictabase.base_table.SetDebug(DEBUG)
 
 
+def SetDebug(newState, thisModule=True):
+    global print
+    dictabase.base_table.SetDebug(newState)
+    _dbWorker.SetDebug(newState)
+    if thisModule:
+        if newState is False:
+            print = lambda *a, **k: None
+        else:
+            print = oldPrint
+
+
 def RegisterDBURI(dburi=None):
     _dbWorker.RegisterDBURI(dburi)
 
 
 def New(cls, **kwargs):
-    newObj = None
+    print('New(', cls, kwargs)
 
-    def Callback(newObjWithID):
-        nonlocal newObj
-        newObj = newObjWithID
+    newObj = _dbWorker.Insert(cls, **kwargs)
 
-    _dbWorker.New(cls, _callback=Callback, **kwargs)
-
-    while newObj is None:
-        time.sleep(0.1)
-
+    print('New return', newObj)
     return newObj
 
 
 def Delete(obj):
-    deleteComplete = False
+    print('Delete(', obj)
 
-    def CallbackDeleteComplete():
-        nonlocal deleteComplete
-        deleteComplete = True
-
-    _dbWorker.AddToDeleteQ(obj, _callback=CallbackDeleteComplete)
-
-    while not deleteComplete:
-        time.sleep(0.1)
+    _dbWorker.AddToDeleteQ(obj)
 
 
 def Drop(cls, confirm=False):
+    print('Drop(', cls, confirm)
     if confirm:
-        dropComplete = False
 
-        def CallbackDropComplete():
-            nonlocal dropComplete
-            dropComplete = True
+        _dbWorker.AddToDropQ(cls)
 
-        _dbWorker.AddToDropQ(cls, CallbackDropComplete)
-
-        while not dropComplete:
-            time.sleep(0.1)
     else:
         raise PermissionError('Cannot drop table "{}" unless you pass the kwarg "confirm=True".'.format(cls.__name__))
 
+    print('Drop() return')
+
 
 def FindOne(cls, **kwargs):
-    findOneResult = False
-
-    def CallbackFindOneComplete(result):
-        nonlocal findOneResult
-        findOneResult = result
-
-    _dbWorker.FindOne(cls, kwargs, CallbackFindOneComplete)
-
-    while findOneResult is False:
-        time.sleep(0.1)
-
+    print('FindOne(', cls, kwargs)
+    findOneResult = _dbWorker.FindOne(cls, kwargs)
+    print('FindOne return', findOneResult)
     return findOneResult
 
 
 def FindAll(cls, **kwargs):
-    findAllResult = False
+    print('FindAll(', cls, kwargs)
+    findAllResult = _dbWorker.FindAll(cls, kwargs)
 
-    def CallbackFindAllComplete(result):
-        nonlocal findAllResult
-        findAllResult = result
-
-    _dbWorker.FindAll(cls, kwargs, CallbackFindAllComplete)
-
-    while findAllResult is False:
-        time.sleep(0.1)
-
+    print('FindAll return', findAllResult)
     return findAllResult
