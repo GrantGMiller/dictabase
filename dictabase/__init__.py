@@ -3,13 +3,13 @@ from dictabase.database_worker import DatabaseWorker
 import time
 from dictabase.base_table import BaseTable
 from dictabase.helpers import ExponentialDelay
+import subprocess
 
 DEBUG = False
 oldPrint = print
 
 _dbWorker = DatabaseWorker()
 dictabase.base_table.RegisterDbWorker(_dbWorker)
-
 
 def SetDebug(newState, thisModule=True):
     global print
@@ -38,14 +38,14 @@ def New(cls, **kwargs):
 def Delete(obj):
     print('Delete(', obj)
 
-    _dbWorker.AddToDeleteQ(obj)
+    _dbWorker.Delete(obj)
 
 
 def Drop(cls, confirm=False):
     print('Drop(', cls, confirm)
     if confirm:
 
-        _dbWorker.AddToDropQ(cls)
+        _dbWorker.Drop(cls)
 
     else:
         raise PermissionError('Cannot drop table "{}" unless you pass the kwarg "confirm=True".'.format(cls.__name__))

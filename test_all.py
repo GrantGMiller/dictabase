@@ -57,7 +57,7 @@ def test_Simple():
     print('test_Simple() complete')
 
 
-def test_Delete():
+def test_DoDelete():
     class SimpleTestClass(BaseTable):
         pass
 
@@ -151,7 +151,6 @@ def test_SimpleChild():
 
 def test_ChildWithComplexKeys():
     # Test Relational Mapping
-
     class Book(BaseTable):
         def LoadKey(self, key, dbValue):
             # print('Book.LoadKey(', key, dbValue)
@@ -202,7 +201,7 @@ def test_ChildWithComplexKeys():
     print('page2["book"]=', page2['book'])
 
 
-def test_New():
+def test_TryNew():
     class Thingamajig(BaseTable):
         pass
 
@@ -211,7 +210,7 @@ def test_New():
     print('New Thingamajig=', obj)
 
 
-def test_None():
+def test_DoNone():
     class TableNone(BaseTable):
         pass
 
@@ -256,6 +255,7 @@ def test_Integers():
 
     assert isinstance(foundObj['stringOne'], str)
     assert isinstance(foundObj['intOne'], int)
+    print('end testIntegers')
 
 
 def test_OverlappingReferences():

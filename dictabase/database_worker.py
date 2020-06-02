@@ -25,6 +25,7 @@ class DatabaseWorker:
 
     def print(self, *a, **k):
         if self._debug:
+            print('DatabaseWorker')
             print('self._inUse=', self._inUse)
             print(*a, **k)
 
@@ -44,7 +45,7 @@ class DatabaseWorker:
         )
 
     def Insert(self, cls, **kwargs):
-        print('AddToInsertQ')
+        print('Insert')
 
         obj = cls(**kwargs)
 
@@ -55,13 +56,13 @@ class DatabaseWorker:
             ID = self._db[tableName].insert(d)
             self._db.commit()
 
-        obj['id'] = ID
+            obj['id'] = ID
+            self.AddToInUse(obj)
 
-        self.AddToInUseQ(obj)
         return obj
 
-    def AddToDropQ(self, cls):
-        self.print('AddToDrop(', cls)
+    def Drop(self, cls):
+        self.print('Drop(', cls)
 
         self._CommitAll()
 
@@ -71,12 +72,12 @@ class DatabaseWorker:
             self._db[tableName].drop()
             self._db.commit()
 
-    def AddToInUseQ(self, obj):
+    def AddToInUse(self, obj):
         self.print('AddToInUseQ(', obj)
         self._inUse[type(obj)][obj['id']] = obj
 
     def Upsert(self, obj, keepInUse=False):
-        self.print('AddToCommitQ(', obj)
+        self.print('Upsert(', obj, ',keepInUse=', keepInUse)
         # this is called when there are no more references to a BaseTable() object (aka obj.__del__() is called)
 
         if not keepInUse:
@@ -95,8 +96,8 @@ class DatabaseWorker:
             self._db[tableName].upsert(d, ['id'])  # find row with matching 'id' and update it
             self._db.commit()
 
-    def AddToDeleteQ(self, obj):
-        self.print('AddToDeleteQ(', obj)
+    def Delete(self, obj):
+        self.print('Delete(', obj)
         self._CommitAll()
 
         with self._workerLock:
@@ -112,11 +113,13 @@ class DatabaseWorker:
 
         # if this object is already in use, return the reference
 
-        for obj in self._inUse[cls].values():
-            if IsSubset(superDict=obj, subDict=dict(**kwargs)):
-                return obj
+        with self._workerLock:
+            for obj in self._inUse[cls].values():
+                if IsSubset(superDict=obj, subDict=dict(**kwargs)):
+                    print('FindOne return from inUse obj=', obj)
+                    return obj
 
-        self._CommitAll()
+        self._CommitAll(keepInUse=True)
 
         # self._db.begin() # dont do this
 
@@ -128,7 +131,7 @@ class DatabaseWorker:
             if ret:
                 ret = cls(**ret)
                 ret = LoadKeys(ret)
-                self.AddToInUseQ(ret)
+                self.AddToInUse(ret)
             else:
                 ret = None
 
@@ -137,10 +140,11 @@ class DatabaseWorker:
     def FindAll(self, cls, kwargs):
         self.print('FindAll(', cls, kwargs)
 
-        foundInUse = []
-        for obj in self._inUse[cls].values():
-            if IsSubset(superDict=obj, subDict=dict(**kwargs)):
-                foundInUse.append(obj)
+        with self._workerLock:
+            foundInUse = []
+            for obj in self._inUse[cls].values():
+                if IsSubset(superDict=obj, subDict=dict(**kwargs)):
+                    foundInUse.append(obj)
 
         self._CommitAll(keepInUse=True)
 
@@ -173,7 +177,7 @@ class DatabaseWorker:
         self.print('foundInUse=', foundInUse)
 
         for obj in foundInUse:  # in use has priority
-            self.AddToInUseQ(obj)
+            self.AddToInUse(obj)
             alreadyYielded.add(obj['id'])
             self.print('FindAll foundInUse yield obj=', obj)
             yield obj
@@ -181,16 +185,17 @@ class DatabaseWorker:
         for d in foundInDB:
             self.print('foundInDB d=', d)
             self.print('alreadyYielded=', alreadyYielded)
-            obj = cls(**d)
-            obj = LoadKeys(obj)
-            if obj['id'] not in alreadyYielded:
-                self.AddToInUseQ(obj)
+
+            if d['id'] not in alreadyYielded:
+                obj = cls(**d)
+                obj = LoadKeys(obj)
+                self.AddToInUse(obj)
                 alreadyYielded.add(obj['id'])
                 self.print('FindAll foundInDB yield obj=', obj)
                 yield obj
 
     def _CommitAll(self, keepInUse=False):
-        self.print('CommitAll')
+        self.print('CommitAll(keepInUse=', keepInUse)
 
         for theType in self._inUse:
             for obj in self._inUse[theType].copy().values():
