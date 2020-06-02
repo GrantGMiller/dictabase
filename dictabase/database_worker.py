@@ -128,10 +128,10 @@ class DatabaseWorker:
             if ret:
                 ret = cls(**ret)
                 ret = LoadKeys(ret)
+                self.AddToInUseQ(ret)
             else:
                 ret = None
 
-            self.AddToInUseQ(ret)
         return ret
 
     def FindAll(self, cls, kwargs):

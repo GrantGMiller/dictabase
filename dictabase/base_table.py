@@ -39,7 +39,7 @@ class BaseTable(dict):
 
     def __del__(self):
         print(f'{self}.__del__()')
-        db.AddToCommitQ(self)
+        db.Upsert(self)
 
     def __str__(self):
         '''

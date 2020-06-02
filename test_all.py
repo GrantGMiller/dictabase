@@ -16,6 +16,19 @@ SetDebug(True)
 RegisterDBURI()
 
 
+def test_FindOne_None():
+    class BlerpClass(BaseTable):
+        pass
+
+    Drop(BlerpClass, confirm=True)
+
+    res = FindOne(BlerpClass)
+    assert res is None
+
+    res = list(FindAll(BlerpClass))
+    assert len(res) is 0
+
+
 def test_Simple():
     print('test_Simple(')
 

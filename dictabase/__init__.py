@@ -8,10 +8,7 @@ DEBUG = False
 oldPrint = print
 
 _dbWorker = DatabaseWorker()
-_dbWorker.SetDebug(DEBUG)
-
 dictabase.base_table.RegisterDbWorker(_dbWorker)
-dictabase.base_table.SetDebug(DEBUG)
 
 
 def SetDebug(newState, thisModule=True):
@@ -69,3 +66,6 @@ def FindAll(cls, **kwargs):
 
     print('FindAll return', findAllResult)
     return findAllResult
+
+
+SetDebug(DEBUG)
