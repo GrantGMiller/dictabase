@@ -45,7 +45,7 @@ class DatabaseWorker:
         )
 
     def Insert(self, cls, **kwargs):
-        print('Insert')
+        self.print('Insert')
 
         obj = cls(**kwargs)
 
@@ -116,7 +116,7 @@ class DatabaseWorker:
         with self._workerLock:
             for obj in self._inUse[cls].values():
                 if IsSubset(superDict=obj, subDict=dict(**kwargs)):
-                    print('FindOne return from inUse obj=', obj)
+                    self.print('FindOne return from inUse obj=', obj)
                     return obj
 
         self._CommitAll(keepInUse=True)
