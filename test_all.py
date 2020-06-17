@@ -340,15 +340,15 @@ def test_MultipleInstances():
 
 
 def test_MultipleSimultaneousInstances():
-    class User(BaseTable):
+    class MSIUserClass(BaseTable):
         pass
 
-    Drop(User, confirm=True)
+    Drop(MSIUserClass, confirm=True)
 
-    New(User, name='username1', age='33')
+    New(MSIUserClass, name='username1', age='33')
 
-    userA = FindOne(User, name='username1')
-    userB = FindOne(User, name='username1')
+    userA = FindOne(MSIUserClass, name='username1')
+    userB = FindOne(MSIUserClass, name='username1')
 
     print('userA=', userA)
     userA['age'] = '99'
@@ -359,7 +359,7 @@ def test_MultipleSimultaneousInstances():
     print('userA=', userA)
     print('userB=', userB)
 
-    for user in FindAll(User):
+    for user in FindAll(MSIUserClass):
         print('user=', user)
         assert user['age'] == '00'
 

@@ -5,10 +5,6 @@ Install
 
 pip install dictabase
 
-Example
-=======
-
-`Click here to see a complete example main.py <https://github.com/GrantGMiller/dictabase/blob/master/main.py>`__
 
 Create a new table
 ------------------
@@ -16,7 +12,10 @@ Create a new table
 ::
 
     # Create a table representing users
-    from dictabase import BaseTable
+    from dictabase import BaseTable, RegisterDBURI
+
+    RegisterDBURI() # pass nothing to default to sqlite
+
     class UserClass(BaseTable):
         pass
 
