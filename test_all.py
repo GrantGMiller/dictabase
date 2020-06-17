@@ -394,3 +394,24 @@ def test_Threading():
             break
 
     assert len(allShapes) == LENGTH
+
+
+def test_InsertWithComplexKeys():
+    class ComplexClass(BaseTable):
+
+        def DumpKey(self, key, value):
+            return json.dumps(value)
+
+        def LoadKey(self, key, dbValue):
+            return json.loads(dbValue)
+
+    Drop(ComplexClass, confirm=True)
+
+    c = New(ComplexClass, **dict(
+        key1='value1',
+        key2={'key2a': 'value2a'},
+        key3=[1, 2, '3', '4'],
+    ))
+
+    foundC = FindOne(ComplexClass)
+

@@ -5,11 +5,12 @@ from dictabase.base_table import BaseTable
 from dictabase.helpers import ExponentialDelay
 import subprocess
 
-DEBUG = False
+DEBUG = True
 oldPrint = print
 
 _dbWorker = DatabaseWorker()
 dictabase.base_table.RegisterDbWorker(_dbWorker)
+
 
 def SetDebug(newState, thisModule=True):
     global print

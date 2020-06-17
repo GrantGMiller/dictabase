@@ -45,15 +45,16 @@ class DatabaseWorker:
         )
 
     def Insert(self, cls, **kwargs):
-        self.print('Insert')
+        self.print('Insert', cls, kwargs)
 
         obj = cls(**kwargs)
 
         with self._workerLock:
             self._db.begin()
-            d = dict(obj)
-            tableName = type(obj).__name__
-            ID = self._db[tableName].insert(d)
+            tableName = type(obj).__name__ # do this before DumpKeys
+            dumpedObj = DumpKeys(obj)
+            d = dict(dumpedObj)
+            ID = self._db[tableName].insert(dumpedObj)
             self._db.commit()
 
             obj['id'] = ID
