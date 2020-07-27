@@ -339,63 +339,6 @@ def test_MultipleInstances():
         assert user['age'] == '00'
 
 
-def test_MultipleSimultaneousInstances():
-    class MSIUserClass(BaseTable):
-        pass
-
-    Drop(MSIUserClass, confirm=True)
-
-    New(MSIUserClass, name='username1', age='33')
-
-    userA = FindOne(MSIUserClass, name='username1')
-    userB = FindOne(MSIUserClass, name='username1')
-
-    print('userA=', userA)
-    userA['age'] = '99'
-
-    print('userB=', userB)
-    userB['age'] = '00'
-
-    print('userA=', userA)
-    print('userB=', userB)
-
-    for user in FindAll(MSIUserClass):
-        print('user=', user)
-        assert user['age'] == '00'
-
-
-def test_Threading():
-    from threading import Timer
-
-    class Shape(BaseTable):
-        pass
-
-    Drop(Shape, confirm=True)
-
-    def Function(name):
-        print(f'Function({name})')
-
-        New(Shape, name=name)
-
-    LENGTH = 3
-    for i in range(LENGTH):
-        Timer(0, Function, (f'name{i}',)).start()
-
-    count = 0
-    while count < 10:
-        print('while count < 10; count=', count)
-        # give the threads time to finish, but if they take too long, assume it falied
-        allShapes = list(FindAll(Shape))
-        print('allShapes=', allShapes)
-        if len(allShapes) < LENGTH:
-            count += 1
-            time.sleep(1)
-        else:
-            break
-
-    assert len(allShapes) == LENGTH
-
-
 def test_InsertWithComplexKeys():
     class ComplexClass(BaseTable):
 
@@ -415,3 +358,106 @@ def test_InsertWithComplexKeys():
 
     foundC = FindOne(ComplexClass)
 
+
+def test_DeleteWhileInUse():
+    class Channel(BaseTable):
+        pass
+
+    Drop(Channel, confirm=True)
+
+    channels = [New(Channel) for _ in range(3)]
+
+    # for ch in channels:
+    #     if ch['id'] == 2:
+    #         Delete(ch)
+    #         pass
+    #
+    foundChannel = FindOne(Channel, id=2)
+    Delete(foundChannel)
+
+    foundAllChannels = list(FindAll(Channel))
+    print('foundAllChannels=', foundAllChannels)
+    for ch in foundAllChannels:
+        if ch['id'] == 2:
+            raise Exception('Channel 2 should have been deleted')
+
+    foundChannelAgain = FindOne(Channel, id=2)
+    assert foundChannelAgain is None
+
+    print('channels=', channels)
+
+
+def test_MultipleSimultaneousInstances():
+    class MSIUserClass(BaseTable):
+        pass
+
+    Drop(MSIUserClass, confirm=True)
+
+    New(MSIUserClass, name='username1', age='33')
+
+    foundA = FindOne(MSIUserClass, name='username1')
+    foundB = FindOne(MSIUserClass, name='username1')
+
+    print('userA=', foundA)
+    foundA['age'] = '99'
+
+    print('userB=', foundB)
+    foundB['age'] = '00'  # the last statement should be truth
+
+    print('userA=', foundA)
+    print('userB=', foundB)
+
+    for user in FindAll(MSIUserClass):
+        print('user=', user)
+        assert user['age'] == '00'
+
+    print('userA=', foundA)
+    print('userB=', foundB)
+
+
+def test_Threading():
+    from threading import Thread
+
+    class Shape(BaseTable):
+        pass
+
+    Drop(Shape, confirm=True)
+
+    def Function(name):
+        print(f'Function({name})')
+
+        New(Shape, name=name)
+
+    LENGTH = 3
+    for i in range(LENGTH):
+        Thread(target=Function, args=(f'name{i}',)).start()
+
+    count = 0
+    while count < 10:
+        print('while count < 10; count=', count)
+        # give the threads time to finish, but if they take too long, assume it falied
+        allShapes = list(FindAll(Shape))
+        print('allShapes=', allShapes)
+        if len(allShapes) < LENGTH:
+            count += 1
+            time.sleep(1)
+        else:
+            break
+
+    assert len(allShapes) == LENGTH
+
+
+def test_Default():
+    class DefaultClass(BaseTable):
+        pass
+
+    Drop(DefaultClass, confirm=True)
+
+    d = New(DefaultClass, one='1')
+    assert d['one'] == '1'
+    assert d['nope'] is None
+
+    foundD = FindOne(DefaultClass)
+
+    assert foundD['one'] == '1'
+    assert foundD['nah'] is None

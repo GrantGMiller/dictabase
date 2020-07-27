@@ -25,8 +25,7 @@ class DatabaseWorker:
 
     def print(self, *a, **k):
         if self._debug:
-            print('DatabaseWorker')
-            print('self._inUse=', self._inUse)
+            print('DatabaseWorker._inUse=', self._inUse)
             print(*a, **k)
 
     def RegisterDBURI(self, dburi):
@@ -51,7 +50,7 @@ class DatabaseWorker:
 
         with self._workerLock:
             self._db.begin()
-            tableName = type(obj).__name__ # do this before DumpKeys
+            tableName = type(obj).__name__  # do this before DumpKeys
             dumpedObj = DumpKeys(obj)
             d = dict(dumpedObj)
             ID = self._db[tableName].insert(dumpedObj)
@@ -104,10 +103,13 @@ class DatabaseWorker:
         with self._workerLock:
             self._db.begin()
             tableName = type(obj).__name__
-            self._db[tableName].delete(**obj)
+            d = {'id': obj['id']}
+            self._db[tableName].delete(**d)
             self._db.commit()
 
         self._alreadyDeletedQ[type(obj)][obj['id']] = obj
+
+        self.print('Delete complete for obj=', obj)
 
     def FindOne(self, cls, kwargs):
         self.print('FindOne(', cls, kwargs)
@@ -163,6 +165,9 @@ class DatabaseWorker:
             tableName = cls.__name__
 
             if len(kwargs) == 0:
+                if tableName not in self._db:
+                    newTable = self._db[tableName]  # create a new table
+
                 foundInDB = self._db[tableName].all(order_by=[f'{orderBy}'])
             else:
                 if orderBy is not None:

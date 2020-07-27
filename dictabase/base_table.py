@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 global db
 db = None
 
@@ -19,7 +21,9 @@ def SetDebug(newState):
 
 
 class BaseTable(dict):
+
     def LoadKey(self, key, dbValue):
+        print('BaseTable.LoadKey(', key, dbValue)
         # moving data from database to the BaseTable object
         return dbValue
 
@@ -29,6 +33,7 @@ class BaseTable(dict):
         # }.get(key, lambda v: v)(dbValue)
 
     def DumpKey(self, key, value):
+        print('BaseTable.DumpKey(', key, value)
         # moving data from the BaseTable object to the database
         return value
 
